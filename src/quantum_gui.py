@@ -1,5 +1,5 @@
 """
-Quantum simulation GUI module with OpenGL visualization and Walter Russell concepts integration.
+Enhanced quantum visualization GUI with GPU acceleration and advanced rendering.
 
 This module provides the graphical interface for quantum state visualization,
 integrating Walter Russell's philosophical concepts with modern quantum mechanics. It includes
@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, NoReturn, Optional, Tuple, Union
 
 # Configure logging
+logger = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -58,7 +59,8 @@ from PyQt5.QtCore import (
 from PyQt5.QtGui import (
     QColor, QFont, QIcon, QImage, QOpenGLContext, QOffscreenSurface, QPainter, QPen,
     QPixmap, QSurfaceFormat, QVector3D, QWindow, QLinearGradient, QRadialGradient,
-    QPalette, QBrush
+    QPalette, QBrush, QOpenGLShader, QOpenGLShaderProgram, QOpenGLBuffer,
+    QOpenGLFormat, QOpenGLVersionProfile
 )
 
 # Qt Widget imports
@@ -67,7 +69,7 @@ from PyQt5.QtWidgets import (
     QFileDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QMainWindow,
     QProgressBar, QPushButton, QRadioButton, QScrollArea, QSlider, QSpinBox,
     QSplitter, QStackedWidget, QStatusBar, QTabWidget, QTextEdit, QToolBar,
-    QVBoxLayout, QWidget, QColorDialog
+    QVBoxLayout, QWidget, QColorDialog, QOpenGLWidget
 )
 
 # PyQtGraph imports
@@ -75,6 +77,17 @@ import pyqtgraph as pg
 import pyqtgraph.opengl as gl
 from pyqtgraph.Qt import QtCore
 from pyqtgraph import functions as fn
+from pyqtgraph.opengl import GLViewWidget
+from .quantum_gpu_accelerator import GPUAccelerator
+from .quantum_state_buffer import QuantumStateBuffer
+from .quantum_shaders import (
+    SURFACE_VERTEX_SHADER,
+    SURFACE_FRAGMENT_SHADER,
+    VOLUMETRIC_VERTEX_SHADER,
+    VOLUMETRIC_FRAGMENT_SHADER,
+    RAYTRACING_VERTEX_SHADER,
+    RAYTRACING_FRAGMENT_SHADER
+)
 
 # Quantum physics constants
 HBAR = 1.0  # Reduced Planck constant in natural units
@@ -163,327 +176,309 @@ def validate_dnssec_domain(domain: str = 'quantumcraft.app') -> None:
         raise SecurityError(f"DNSSEC validation error: {str(e)}")
 
 
-class QuantumGLWidget(gl.GLViewWidget):
-    """
-    OpenGL widget for quantum state visualization incorporating Walter Russell's principles.
+class QuantumGLWidget(GLViewWidget):
+    """Enhanced OpenGL widget for quantum state visualization."""
 
-    This widget visualizes quantum states as a dynamic surface that demonstrates:
-    - Universal Oneness: Through continuous, interconnected wave functions
-    - Light-Like Propagation: Via proper phase velocity and wave dynamics
-    - Resonance and Vibration: Through harmonic oscillations in phase space
-    - Dynamic Equilibrium: By maintaining quantum state normalization
-    """
     def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCameraPosition(distance=40)
+        self.gpu_accelerator = GPUAccelerator()  # Updated to match imported class name
+        self.state_buffer = QuantumStateBuffer()
+        self._quantum_state = None
+        self._surface = None
+        self._update_mutex = QMutex()
+        self.setup_gl_context()
+        self._init_shaders()
+        self._init_surface_plot()
+
+    def setup_gl_context(self):
+        """Configure OpenGL context for advanced rendering."""
         try:
-            super().__init__(parent)
+            # Create and configure OpenGL context
+            context = QOpenGLContext()
+            format_ = QOpenGLFormat()
+            format_.setVersion(4, 5)  # Use OpenGL 4.5 for advanced features
+            format_.setProfile(QOpenGLFormat.CoreProfile)
+            format_.setDepthBufferSize(24)
+            format_.setSamples(4)  # Enable multisampling
+            format_.setStencilBufferSize(8)
+            format_.setSwapBehavior(QOpenGLFormat.DoubleBuffer)
 
-            # Initialize state flags
-            self._initialized = False
-            self._surface_initialized = False
-            self._is_test_env = QApplication.instance().platformName() == 'offscreen'
-
-            # Initialize PyQtGraph first
-            pg.setConfigOptions(antialias=True, useOpenGL=True)
-            self._init_pyqtgraph()
-
-            # Create and initialize OpenGL context for headless testing
-            self._context = QOpenGLContext()
-            format = QSurfaceFormat.defaultFormat()
-            format.setVersion(2, 1)  # Ensure OpenGL 2.1 compatibility
-            format.setProfile(QSurfaceFormat.NoProfile)
-            format.setRenderableType(QSurfaceFormat.OpenGL)
-            self._context.setFormat(format)
-            if not self._context.create():
+            context.setFormat(format_)
+            if not context.create():
                 raise RuntimeError("Failed to create OpenGL context")
 
-            # Create offscreen surface for headless environment
-            self._surface = QOffscreenSurface()
-            self._surface.setFormat(self._context.format())
-            self._surface.create()
+            # Make context current using offscreen surface
+            surface = QOffscreenSurface()
+            surface.setFormat(format_)
+            surface.create()
+            if not context.makeCurrent(surface):
+                raise RuntimeError("Failed to make OpenGL context current")
 
-            # Make context current using offscreen surface if in headless mode
-            if self._is_test_env:
-                if not self._context.makeCurrent(self._surface):
-                    raise RuntimeError("Failed to make OpenGL context current on offscreen surface")
-            else:
-                # For non-headless mode, ensure window handle exists
-                if self.windowHandle() is None:
-                    self.create()  # Create the window handle
+            # Verify OpenGL version and features
+            gl_version = context.format().version()
+            logger.info(f"OpenGL context initialized: version {gl_version[0]}.{gl_version[1]}")
+            logger.info("OpenGL context initialized successfully")
+        except Exception as e:
+            logger.error(f"OpenGL context setup failed: {str(e)}")
+            raise
 
-                # Retry window handle creation if needed
-                retries = 3
-                while self.windowHandle() is None and retries > 0:
-                    QApplication.processEvents()
-                    self.create()
-                    retries -= 1
-                    time.sleep(0.1)  # Short delay between retries
+    def _init_shaders(self):
+        """Initialize shader programs for different rendering modes."""
+        try:
+            # Surface plot shaders
+            self.surface_program = QOpenGLShaderProgram()
+            self.surface_program.addShaderFromSourceCode(
+                QOpenGLShader.Vertex,
+                SURFACE_VERTEX_SHADER
+            )
+            self.surface_program.addShaderFromSourceCode(
+                QOpenGLShader.Fragment,
+                SURFACE_FRAGMENT_SHADER
+            )
+            if not self.surface_program.link():
+                raise RuntimeError("Failed to link surface shader program")
 
-                if self.windowHandle() is None:
-                    raise RuntimeError("Failed to create window handle after retries")
+            # Volumetric rendering shaders
+            self.volumetric_program = QOpenGLShaderProgram()
+            self.volumetric_program.addShaderFromSourceCode(
+                QOpenGLShader.Vertex,
+                VOLUMETRIC_VERTEX_SHADER
+            )
+            self.volumetric_program.addShaderFromSourceCode(
+                QOpenGLShader.Fragment,
+                VOLUMETRIC_FRAGMENT_SHADER
+            )
+            if not self.volumetric_program.link():
+                raise RuntimeError("Failed to link volumetric shader program")
 
-                # Make context current using the widget's window surface
-                if not self._context.makeCurrent(self.windowHandle()):
-                    raise RuntimeError("Failed to make OpenGL context current")
+            # Ray tracing shaders
+            self.raytracing_program = QOpenGLShaderProgram()
+            self.raytracing_program.addShaderFromSourceCode(
+                QOpenGLShader.Vertex,
+                RAYTRACING_VERTEX_SHADER
+            )
+            self.raytracing_program.addShaderFromSourceCode(
+                QOpenGLShader.Fragment,
+                RAYTRACING_FRAGMENT_SHADER
+            )
+            if not self.raytracing_program.link():
+                raise RuntimeError("Failed to link ray tracing shader program")
 
-            # Initialize base visualization parameters
-            self.setCameraPosition(distance=40, elevation=30, azimuth=45)
+            logger.info("Shader programs initialized successfully")
+        except Exception as e:
+            logger.error(f"Shader initialization failed: {str(e)}")
+            raise
 
-            # Initialize quantum state parameters
-            self._phase = 0.0
-            self._time = 0.0
-            self._k = 2.0  # Wave number for light-like propagation
-            self._omega = 0.2  # Angular frequency for proper phase velocity
+    def get_current_state(self):
+        """Get current quantum state."""
+        return self._quantum_state if hasattr(self, '_quantum_state') else None
 
-            # Initialize quantum state grid
+    def cleanup(self):
+        """Release GPU and OpenGL resources."""
+        try:
+            # Release shader programs
+            if hasattr(self, 'surface_program'):
+                self.surface_program.release()
+            if hasattr(self, 'volumetric_program'):
+                self.volumetric_program.release()
+            if hasattr(self, 'raytracing_program'):
+                self.raytracing_program.release()
+
+            # Release buffers and textures
+            if hasattr(self, '_surface_vbo'):
+                self._surface_vbo.release()
+            if hasattr(self, '_surface_ibo'):
+                self._surface_ibo.release()
+
+            # Release GPU resources
+            if hasattr(self, 'gpu_accelerator'):
+                self.gpu_accelerator.cleanup()
+
+            logger.info("OpenGL resources cleaned up successfully")
+        except Exception as e:
+            logger.error(f"Cleanup failed: {str(e)}")
+
+    def _init_surface_plot(self):
+        """Initialize surface plot with shader support."""
+        try:
+            # Create grid for quantum state visualization
             x = np.linspace(-10, 10, 100)
             y = np.linspace(-10, 10, 100)
             self._x, self._y = np.meshgrid(x, y)
 
-            # Create and validate initial quantum state
-            sigma = 2.0  # Width of the wave packet
+            # Initialize quantum state
+            sigma = 2.0
             r2 = self._x**2 + self._y**2
             psi = np.exp(-r2/(4*sigma**2)) * np.exp(1j * (self._x + self._y))
-            if not np.all(np.isfinite(psi)):
-                raise ValueError("Invalid initial state: contains non-finite values")
-            norm = np.sqrt(np.sum(np.abs(psi)**2))
-            if norm == 0:
-                raise ValueError("Invalid initial state: zero norm")
-            self._current_z = psi / norm
+            self._quantum_state = psi / np.sqrt(np.sum(np.abs(psi)**2))
 
-            # Set up animation timer but don't start it yet
-            self._timer = QTimer()
-            self._timer.timeout.connect(self._update_quantum_state)
+            # Create vertex data for surface plot
+            vertices = []
+            indices = []
+            texcoords = []
+            probabilities = []
 
-            # Mark initialization as complete
-            self._initialized = True
-            logging.debug("QuantumGLWidget initialized successfully")
+            for i in range(99):
+                for j in range(99):
+                    # Add vertices
+                    vertices.extend([
+                        self._x[i,j], self._y[i,j], np.abs(self._quantum_state[i,j]),
+                        self._x[i+1,j], self._y[i+1,j], np.abs(self._quantum_state[i+1,j]),
+                        self._x[i,j+1], self._y[i,j+1], np.abs(self._quantum_state[i,j+1]),
+                        self._x[i+1,j+1], self._y[i+1,j+1], np.abs(self._quantum_state[i+1,j+1])
+                    ])
 
+                    # Add texture coordinates
+                    texcoords.extend([
+                        i/99, j/99,
+                        (i+1)/99, j/99,
+                        i/99, (j+1)/99,
+                        (i+1)/99, (j+1)/99
+                    ])
+
+                    # Add probabilities
+                    prob = np.abs(self._quantum_state[i:i+2, j:j+2])**2
+                    probabilities.extend([
+                        prob[0,0], prob[1,0],
+                        prob[0,1], prob[1,1]
+                    ])
+
+                    # Add indices for triangles
+                    base = (i * 99 + j) * 4
+                    indices.extend([
+                        base, base+1, base+2,
+                        base+1, base+3, base+2
+                    ])
+
+            # Create and bind vertex buffer
+            self.vertex_buffer = QOpenGLBuffer(QOpenGLBuffer.VertexBuffer)
+            self.vertex_buffer.create()
+            self.vertex_buffer.bind()
+            self.vertex_buffer.allocate(
+                np.array(vertices, dtype=np.float32).tobytes(),
+                len(vertices) * 4
+            )
+
+            # Create and bind texture coordinate buffer
+            self.texcoord_buffer = QOpenGLBuffer(QOpenGLBuffer.VertexBuffer)
+            self.texcoord_buffer.create()
+            self.texcoord_buffer.bind()
+            self.texcoord_buffer.allocate(
+                np.array(texcoords, dtype=np.float32).tobytes(),
+                len(texcoords) * 4
+            )
+
+            # Create and bind probability buffer
+            self.probability_buffer = QOpenGLBuffer(QOpenGLBuffer.VertexBuffer)
+            self.probability_buffer.create()
+            self.probability_buffer.bind()
+            self.probability_buffer.allocate(
+                np.array(probabilities, dtype=np.float32).tobytes(),
+                len(probabilities) * 4
+            )
+
+            # Create and bind index buffer
+            self.index_buffer = QOpenGLBuffer(QOpenGLBuffer.IndexBuffer)
+            self.index_buffer.create()
+            self.index_buffer.bind()
+            self.index_buffer.allocate(
+                np.array(indices, dtype=np.uint32).tobytes(),
+                len(indices) * 4
+            )
+
+            logger.info("Surface plot initialized successfully")
         except Exception as e:
-            logging.error(f"Failed to initialize QuantumGLWidget: {str(e)}")
-            raise RuntimeError(f"Widget initialization failed: {str(e)}")
+            logger.error(f"Failed to initialize surface plot: {str(e)}")
+            raise
 
-    def _init_surface_plot(self):
-        """Initialize the surface plot with proper grid and quantum state."""
+    def set_quantum_state(self, state: np.ndarray):
+        """Set quantum state and update visualization."""
         try:
-            # Validate initialization state
-            if not hasattr(self, '_initialized') or not self._initialized:
-                raise RuntimeError("Widget must be initialized before creating surface plot")
-
-            # Create finer grid for better wave function resolution
-            x = np.array(np.linspace(-10, 10, 100), dtype=np.float32)  # 1D array
-            y = np.array(np.linspace(-10, 10, 100), dtype=np.float32)  # 1D array
-            if not (x.shape == (100,) and y.shape == (100,)):
-                raise ValueError(f"Invalid grid dimensions - x: {x.shape}, y: {y.shape}, expected: (100,)")
-            logging.debug(f"Grid dimensions - x: {x.shape}, y: {y.shape}")
-
-            # Create 2D meshgrid but keep original 1D arrays for plotting
-            try:
-                X, Y = np.meshgrid(x, y, indexing='ij')  # Use 'ij' indexing for correct shape
-                if not (X.shape == Y.shape == (100, 100)):
-                    raise ValueError(f"Invalid meshgrid shapes - X: {X.shape}, Y: {Y.shape}")
-                self._x, self._y = X, Y  # Store meshgrid for calculations
-                logging.debug(f"Meshgrid shapes - X: {X.shape}, Y: {Y.shape}")
-            except Exception as e:
-                logging.error(f"Failed to create meshgrid: {e}")
-                raise ValueError(f"Meshgrid creation failed: {e}")
-
-            # Initialize quantum state if not present
-            if not hasattr(self, '_current_z') or self._current_z is None:
-                try:
-                    # Create initial Gaussian wave packet
-                    sigma = 2.0
-                    r2 = X**2 + Y**2
-                    psi = np.exp(-r2/(4*sigma**2))
-                    self._current_z = normalize_quantum_state(psi)
-                    if not isinstance(self._current_z, np.ndarray):
-                        raise TypeError("Quantum state must be numpy array")
-                    logging.debug(f"Initialized quantum state with shape: {self._current_z.shape}")
-                except Exception as e:
-                    logging.error(f"Failed to initialize quantum state: {e}")
-                    raise ValueError(f"Quantum state initialization failed: {e}")
-
-            # Ensure quantum state is numpy array with correct shape and type
-            try:
-                self._current_z = np.asarray(self._current_z, dtype=np.complex128)
-                if self._current_z.shape != (100, 100):
-                    logging.warning(f"Reshaping quantum state from {self._current_z.shape} to (100, 100)")
-                    self._current_z = self._current_z.reshape(100, 100)
-                if not np.all(np.isfinite(self._current_z)):
-                    raise ValueError("Quantum state contains invalid values")
-            except Exception as e:
-                logging.error(f"Failed to validate quantum state: {e}")
-                raise ValueError(f"Quantum state validation failed: {e}")
-
-            # Create surface plot with current state
-            try:
-                z = np.abs(self._current_z)**2  # Convert complex to real for visualization
-                z = np.asarray(z, dtype=np.float32)  # Ensure float32 type for OpenGL
-                if not np.all(np.isfinite(z)):
-                    raise ValueError("Invalid probability density values")
-                logging.debug(f"Surface data shapes - x: {x.shape}, y: {y.shape}, z: {z.shape}")
-
-                # Ensure z has correct shape and is properly normalized
-                z = z.reshape(100, 100)  # Explicitly reshape to match grid dimensions
-                z = z / np.max(z)  # Normalize for better visualization
-                assert z.shape == (100, 100), f"Z shape {z.shape} != expected (100, 100)"
-            except Exception as e:
-                logging.error(f"Failed to prepare surface data: {e}")
-                raise ValueError(f"Surface data preparation failed: {e}")
-
-            # Create surface plot with validated arrays
-            try:
-                self._surface = gl.GLSurfacePlotItem(
-                    x=x,  # Use 1D array
-                    y=y,  # Use 1D array
-                    z=z,  # Use 2D array
-                    shader='shaded',
-                    computeNormals=True,
-                    smooth=True,
-                    glOptions='translucent'
-                )
-                self.addItem(self._surface)
-                self._surface_initialized = True
-            except Exception as e:
-                logging.error(f"Failed to create surface plot: {e}")
-                if hasattr(self, '_surface'):
-                    self.removeItem(self._surface)
-                raise RuntimeError(f"Surface plot creation failed: {e}")
-
-            # Set up camera for better initial view
-            self.setCameraPosition(distance=40, elevation=30, azimuth=45)
-            logging.debug("Surface plot initialized successfully")
-
-        except Exception as e:
-            logging.error(f"Failed to initialize surface plot: {str(e)}")
-            # Clean up any partially created items
-            if hasattr(self, '_surface'):
-                self.removeItem(self._surface)
-            self._surface_initialized = False
-            raise RuntimeError(f"Surface plot initialization failed: {str(e)}")
-
-    def set_quantum_state(self, psi: np.ndarray):
-        """Set and validate quantum state for visualization.
-
-        Args:
-            psi: Complex numpy array representing quantum state
-
-        Raises:
-            ValueError: If state dimensions don't match or normalization fails
-        """
-        try:
-            # Validate initialization state
-            if not hasattr(self, '_initialized') or not self._initialized:
-                raise RuntimeError("Widget must be initialized before setting quantum state")
-
-            # Validate input dimensions and type
-            if not isinstance(psi, np.ndarray):
-                raise ValueError("Quantum state must be a numpy array")
-            if not np.issubdtype(psi.dtype, np.complexfloating):
-                raise ValueError("Quantum state must be complex-valued")
-            if not hasattr(self, '_x') or self._x is None:
-                raise RuntimeError("Grid not initialized")
-            if psi.shape != self._x.shape:
-                raise ValueError(f"Quantum state shape {psi.shape} must match grid dimensions {self._x.shape}")
-            logging.debug(f"Input state shape: {psi.shape}, dtype: {psi.dtype}")
-
-            # Validate state values
-            if not np.all(np.isfinite(psi)):
-                raise ValueError("Quantum state contains invalid values")
-
-            # Normalize and validate state
-            try:
-                self._current_z = normalize_quantum_state(psi)
-                logging.debug(f"Normalized state shape: {self._current_z.shape}")
-            except ValueError as e:
-                logging.error(f"State normalization failed: {str(e)}")
-                raise
-
-            # Update visualization
-            if hasattr(self, '_surface') and self._surface is not None:
+            with QMutexLocker(self._update_mutex):
+                self._quantum_state = state
                 self._update_surface()
-                logging.debug("Quantum state updated successfully")
-            else:
-                logging.warning("Surface plot not initialized, skipping visualization update")
-
         except Exception as e:
-            logging.error(f"Failed to set quantum state: {str(e)}")
-            self._current_z = None  # Reset state on failure
-            raise RuntimeError(f"Quantum state update failed: {str(e)}")
+            logger.error(f"Failed to set quantum state: {str(e)}")
+            raise
 
     def _update_surface(self):
-        """Update surface visualization with quantum state data."""
+        """Update surface plot with current quantum state."""
         try:
-            # Validate state and initialization
-            if not hasattr(self, '_current_z') or self._current_z is None:
-                raise ValueError("No valid quantum state available")
-            if not hasattr(self, '_surface') or self._surface is None:
-                raise RuntimeError("Surface plot not initialized")
+            if self._quantum_state is None:
+                return
 
-            logging.debug(f"Current state shape: {self._current_z.shape}")
+            # Update probability buffer with new state
+            probabilities = np.abs(self._quantum_state)**2
+            prob_data = probabilities.flatten().astype(np.float32)
 
-            # Convert complex quantum state to visualization data
-            try:
-                amplitude = np.abs(self._current_z)
-                phase = np.unwrap(np.angle(self._current_z))
-                if not (np.all(np.isfinite(amplitude)) and np.all(np.isfinite(phase))):
-                    raise ValueError("Invalid amplitude or phase values")
-                logging.debug(f"Amplitude range: [{np.min(amplitude)}, {np.max(amplitude)}]")
-            except Exception as e:
-                logging.error(f"Failed to compute amplitude/phase: {e}")
-                raise
+            self.probability_buffer.bind()
+            self.probability_buffer.write(0, prob_data.tobytes(), len(prob_data) * 4)
 
-            # Calculate and validate phase velocity
-            try:
-                phase_gradient = np.gradient(phase)
-                dx = 20.0 / (phase.shape[0] - 1)  # Grid spacing
-                phase_velocity = np.abs(phase_gradient) / dx
-                mean_velocity = np.mean(phase_velocity)
-                logging.debug(f"Mean phase velocity: {mean_velocity}")
+            # Trigger redraw
+            self.update()
+        except Exception as e:
+            logger.error(f"Failed to update surface: {str(e)}")
+            raise
 
-                # Validate light-like propagation
-                if mean_velocity < 0.1:
-                    logging.warning(f"Phase velocity {mean_velocity} below light-like threshold")
-            except Exception as e:
-                logging.error(f"Failed to calculate phase velocity: {e}")
-                raise
+    def paintGL(self):
+        """Render the scene using appropriate shader program."""
+        try:
+            super().paintGL()
 
-            # Create and validate color map
-            try:
-                colors = np.zeros((amplitude.shape[0], amplitude.shape[1], 4))
-                for i in range(amplitude.shape[0]):
-                    for j in range(amplitude.shape[1]):
-                        hue = (phase[i, j] + math.pi) / (2 * math.pi)
-                        saturation = 0.8
-                        value = 0.6 + 0.4 * amplitude[i, j]
-                        rgb = colorsys.hsv_to_rgb(hue, saturation, value)
-                        colors[i, j] = [rgb[0], rgb[1], rgb[2], 1.0]
-                if not np.all(np.isfinite(colors)):
-                    raise ValueError("Invalid color values generated")
-            except Exception as e:
-                logging.error(f"Failed to generate color map: {e}")
-                raise
+            # Clear buffers
+            self.makeCurrent()
+            gl = self.context().functions()
+            gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
 
-            # Update surface with validated data
-            try:
-                self._surface.setData(
-                    z=amplitude,
-                    colors=colors
-                )
-                logging.debug(f"Surface updated successfully with phase velocity: {mean_velocity}")
-            except Exception as e:
-                logging.error(f"Failed to update surface data: {e}")
-                raise
+            # Choose shader program based on rendering mode
+            if hasattr(self, 'surface_mode') and self.surface_mode.isChecked():
+                program = self.surface_program
+            elif hasattr(self, 'volumetric_mode') and self.volumetric_mode.isChecked():
+                program = self.volumetric_program
+            elif hasattr(self, 'raytracing_mode') and self.raytracing_mode.isChecked():
+                program = self.raytracing_program
+            else:
+                program = self.surface_program
+
+            # Bind shader program
+            program.bind()
+
+            # Set uniforms
+            program.setUniformValue("modelViewMatrix", self.viewMatrix())
+            program.setUniformValue("projectionMatrix", self.projectionMatrix())
+            program.setUniformValue("baseColor", QVector3D(0.2, 0.5, 1.0))
+
+            if hasattr(self, 'glow_effect') and self.glow_effect.isChecked():
+                program.setUniformValue("glowIntensity", 1.0)
+            else:
+                program.setUniformValue("glowIntensity", 0.0)
+
+            # Bind vertex attributes
+            self.vertex_buffer.bind()
+            program.enableAttributeArray(0)
+            program.setAttributeBuffer(0, gl.GL_FLOAT, 0, 3)
+
+            self.texcoord_buffer.bind()
+            program.enableAttributeArray(1)
+            program.setAttributeBuffer(1, gl.GL_FLOAT, 0, 2)
+
+            self.probability_buffer.bind()
+            program.enableAttributeArray(2)
+            program.setAttributeBuffer(2, gl.GL_FLOAT, 0, 1)
+
+            # Draw surface
+            self.index_buffer.bind()
+            gl.glDrawElements(gl.GL_TRIANGLES, self.index_buffer.size() // 4,
+                            gl.GL_UNSIGNED_INT, None)
+
+            # Cleanup
+            program.release()
+            self.doneCurrent()
 
         except Exception as e:
-            logging.error(f"Failed to update surface: {str(e)}")
-            raise RuntimeError(f"Surface update failed: {str(e)}")
-
-    def _update_quantum_state(self):
-        """Update quantum state with light-like propagation."""
-        try:
-            # Validate initialization state
-            if not hasattr(self, '_initialized') or not self._initialized:
-                raise RuntimeError("Widget must be initialized before updating quantum state")
+            logger.error(f"Failed to render scene: {str(e)}")
+            raise
 
             # Initialize or validate quantum state
             if self._current_z is None or self._current_z.shape != (100, 100):
@@ -724,92 +719,82 @@ class QuantumGLWidget(gl.GLViewWidget):
             logging.error(f"Failed to update entanglement plot: {e}")
 
 class QuantumSimulationGUI(QMainWindow):
-    """
-    Main window for quantum simulation incorporating Walter Russell's principles.
+    """Main GUI window for quantum simulation visualization."""
 
-    This class provides a secure interface for visualizing quantum states while
-    integrating Russell's principles:
-    - Universal Oneness: Through continuous wave function visualization
-    - Light-Like Propagation: Via validated phase velocity parameters
-    - Resonance and Vibration: Through harmonic oscillation controls
-    - Dynamic Equilibrium: By maintaining quantum state normalization
-
-    Security features:
-    - Fernet encryption for quantum state data
-    - DNSSEC validation for domain integrity
-    - Secure cleanup of sensitive quantum information
-    """
-    def __init__(self, parent=None, test_mode=False):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        try:
-            # Initialize state flags
-            self._initialized = False
-            self._quantum_state_ready = False
-            self._is_test_env = test_mode or bool(os.getenv('PYTEST_CURRENT_TEST'))
-            self.allow_dnssec_test = test_mode  # Allow DNSSEC validation skip in test mode
-            self._test_mode = test_mode  # Store test mode flag
+        self.setWindowTitle("Quantum Simulation Visualization")
 
-            # Initialize encryption for secure state handling
-            self.encryption_key = Fernet.generate_key()
-            self._cipher = Fernet(self.encryption_key)
-            self.fernet = Fernet(self.encryption_key)  # For test compatibility
+        # Initialize components
+        self.gl_widget = QuantumGLWidget()
+        # Removed TimelineWidget as it was undefined and not imported
 
-            # Initialize thread safety
-            self._update_mutex = QMutex()
-            self._update_lock = threading.Lock()
+        # Set up central widget and layout
+        central_widget = QWidget()
+        layout = QVBoxLayout(central_widget)
+        layout.addWidget(self.gl_widget)
+        self.setCentralWidget(central_widget)
 
-            # Initialize update controls with validation
-            self._update_timer = QTimer(self)
-            self._update_timer.timeout.connect(self.update_simulation)
-            self._update_checkbox = QCheckBox("Enable Real-time Updates")
-            self._update_checkbox.setChecked(False)
-            self._update_checkbox.stateChanged.connect(self._handle_update_toggle)
-            self.real_time_update = self._update_checkbox  # Use QCheckBox instead of bool
+        # Initialize state management
+        self.current_time = 0.0
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self.update_simulation)
 
-            # Initialize update interval with validation
-            self._update_interval = 100  # milliseconds
-            if not (50 <= self._update_interval <= 1000):
-                raise SecurityError("Invalid update interval")
+        # Set up UI controls
+        self._init_ui()
+        self._init_visualization_controls()
 
-            # Initialize visualization parameters with validation
-            self.point_size = 0.1
-            if not (0.01 <= self.point_size <= 1.0):
-                raise ValueError("Invalid point size")
+        logger.info("QuantumSimulationGUI initialized successfully")
 
-            self.update_rate = 50  # 50ms update interval
-            if not (20 <= self.update_rate <= 1000):
-                raise ValueError("Invalid update rate")
+    def _init_visualization_controls(self):
+        """Initialize the visualization control panel."""
+        control_dock = QDockWidget("Controls", self)
+        control_widget = QWidget()
+        control_layout = QVBoxLayout()
 
-            # Initialize quantum state for test environment
-            if self._is_test_env:
-                x = np.linspace(-10, 10, 100)
-                y = np.linspace(-10, 10, 100)
-                self._x, self._y = np.meshgrid(x, y)
-                sigma = 2.0
-                r2 = self._x**2 + self._y**2
-                psi = np.exp(-r2/(4*sigma**2)) * np.exp(1j * (self._x + self._y))
-                self.current_state = self._cipher.encrypt(psi.tobytes())
-            else:
-                self.current_state = None
+        # Parameter controls
+        param_group = QGroupBox("Parameters")
+        param_layout = QGridLayout()
 
-            # Skip DNSSEC validation in test environment
-            if not self._is_test_env:
-                try:
-                    validate_dnssec_domain()
-                except (SecurityError, DNSSECValidationError) as e:
-                    logging.error(f"DNSSEC validation failed: {e}")
-                    raise DNSSECValidationError(f"Domain validation failed: {e}")
+        # Add sliders for quantum parameters
+        self.alpha_slider = QSlider(Qt.Horizontal)
+        self.beta_slider = QSlider(Qt.Horizontal)
+        self.phase_slider = QSlider(Qt.Horizontal)
 
-            # Initialize GL widget without quantum state
-            logging.debug("Initializing QuantumGLWidget")
-            self.gl_widget = QuantumGLWidget(self)
-            self._init_ui()
-            self._initialized = True
-            logging.debug("QuantumSimulationGUI initialization completed")
+        # Add labels
+        param_layout.addWidget(QLabel("Alpha:"), 0, 0)
+        param_layout.addWidget(self.alpha_slider, 0, 1)
+        param_layout.addWidget(QLabel("Beta:"), 1, 0)
+        param_layout.addWidget(self.beta_slider, 1, 1)
+        param_layout.addWidget(QLabel("Phase:"), 2, 0)
+        param_layout.addWidget(self.phase_slider, 2, 1)
 
-        except Exception as e:
-            logging.error(f"Failed to initialize GUI: {e}")
-            raise SecurityError(f"GUI initialization failed: {e}")
+        # Set up parameter ranges
+        for slider in [self.alpha_slider, self.beta_slider, self.phase_slider]:
+            slider.setRange(0, 100)
+            slider.setValue(50)
+            slider.valueChanged.connect(self._update_wave_parameters)
+
+        param_group.setLayout(param_layout)
+        control_layout.addWidget(param_group)
+
+        # Visualization options
+        viz_group = QGroupBox("Visualization")
+        viz_layout = QVBoxLayout()
+
+        # Add visualization controls
+        self.update_toggle = QCheckBox("Real-time Updates")
+        self.update_toggle.setChecked(True)
+        self.update_toggle.stateChanged.connect(self._handle_update_toggle)
+        viz_layout.addWidget(self.update_toggle)
+
+        viz_group.setLayout(viz_layout)
+        control_layout.addWidget(viz_group)
+
+        # Finalize layout
+        control_widget.setLayout(control_layout)
+        control_dock.setWidget(control_widget)
+        self.addDockWidget(Qt.RightDockWidgetArea, control_dock)
 
     def _init_ui(self):
         """Initialize the user interface with quantum controls."""
@@ -879,8 +864,8 @@ class QuantumSimulationGUI(QMainWindow):
     def _handle_update_toggle(self, state):
         """Handle real-time update toggle with thread safety."""
         try:
-            with QMutexLocker(self._update_mutex):
-                if state == Qt.Checked:
+            with QtCore.QMutexLocker(self._update_mutex):
+                if state == QtCore.Qt.Checked:
                     if not self._cipher:
                         raise SecurityError("Encryption required for real-time updates")
                     self.start_real_time_update()
@@ -1249,61 +1234,58 @@ class QuantumSimulationGUI(QMainWindow):
             logging.error(f"Unexpected error during export: {str(e)}")
             raise SecurityError(f"Failed to export data: {str(e)}")
 
-    def create_wavefunction_tab(self) -> QWidget:
-        """Create wavefunction visualization tab with security controls."""
+    def create_wavefunction_tab(self):
+        """Create the wavefunction visualization tab."""
         tab = QWidget()
-        layout = QVBoxLayout(tab)
+        layout = QVBoxLayout()
 
-        # Add security controls
-        security_group = QGroupBox("Security Controls")
-        security_layout = QGridLayout()
+        # Add visualization controls
+        controls_group = QGroupBox("Wavefunction Controls")
+        controls_layout = QGridLayout()
 
-        # Add encryption status indicator
-        encryption_label = QLabel("Encryption Status:")
-        encryption_status = QLabel("Active" if self._cipher else "Inactive")
-        security_layout.addWidget(encryption_label, 0, 0)
-        security_layout.addWidget(encryption_status, 0, 1)
+        # Add parameter sliders
+        self.amplitude_slider = QSlider(Qt.Horizontal)
+        self.frequency_slider = QSlider(Qt.Horizontal)
 
-        security_group.setLayout(security_layout)
-        layout.addWidget(security_group)
+        controls_layout.addWidget(QLabel("Amplitude:"), 0, 0)
+        controls_layout.addWidget(self.amplitude_slider, 0, 1)
+        controls_layout.addWidget(QLabel("Frequency:"), 1, 0)
+        controls_layout.addWidget(self.frequency_slider, 1, 1)
 
+        controls_group.setLayout(controls_layout)
+        layout.addWidget(controls_group)
+
+        tab.setLayout(layout)
         return tab
 
     def start_real_time_update(self, update_rate: float = 50.0):
-        """Initialize and start real-time quantum state updates."""
-        if not hasattr(self, '_update_mutex'):
-            self._update_mutex = QMutex()
-
-        if not hasattr(self, '_update_checkbox'):
-            self._update_checkbox = QCheckBox("Enable Real-time Updates")
-            self._update_checkbox.setChecked(False)
-
-        if not hasattr(self, 'real_time_update'):
-            self.real_time_update = QTimer()
-            self.real_time_update.timeout.connect(self.update_simulation)
-
+        """Start real-time visualization updates."""
         try:
-            # Thread-safe update rate validation
-            with QMutexLocker(self._update_mutex):
-                # Validate update rate
-                update_rate = self.validate_parameter(update_rate, 'update_rate', 1.0, 1000.0)
+            # Create progress dialog
+            progress = QProgressBar(self)
+            progress.setWindowTitle("Initializing Real-time Updates")
+            progress.setRange(0, 100)
+            progress.setValue(0)
+            progress.show()
 
-                # Security check for update interval
-                if not self._cipher:
-                    raise SecurityError("Encryption not initialized for real-time updates")
+            # Configure update timer
+            self.update_timer.setInterval(int(1000.0 / update_rate))
+            self.update_timer.start()
 
-                self.real_time_update.start(int(1000.0 / update_rate))  # Convert to milliseconds
-                self._update_checkbox.setChecked(True)
+            # Update progress
+            progress.setValue(100)
+            progress.close()
 
+            logger.info("Real-time updates started successfully")
         except Exception as e:
-            logging.error(f"Failed to start real-time update: {str(e)}")
-            self._update_checkbox.setChecked(False)
-            raise SecurityError(f"Real-time update initialization failed: {str(e)}")
+            logger.error(f"Failed to start real-time updates: {str(e)}")
+            self.update_timer.stop()
+            raise RuntimeError(f"Real-time update initialization failed: {str(e)}")
 
     def stop_real_time_update(self):
         """Safely stop real-time updates and cleanup."""
         try:
-            with QMutexLocker(self._update_mutex):
+            with QtCore.QMutexLocker(self._update_mutex):
                 if hasattr(self, 'real_time_update'):
                     self.real_time_update.stop()
                     self.real_time_update = None

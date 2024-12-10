@@ -1,0 +1,20 @@
+name: quantum-simulation
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - numpy
+  - pyqt=5
+  - pyqtgraph
+  - pyopengl
+  - pytest
+  - pytest-qt
+  - flake8
+  - scipy
+  - matplotlib
+  - pip:
+    - pyopencl
+    - qutip
+    - pennylane
