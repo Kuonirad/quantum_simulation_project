@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, NoReturn, Optional, Tuple, Union
 
 # Configure logging
+logger = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -58,7 +59,8 @@ from PyQt5.QtCore import (
 from PyQt5.QtGui import (
     QColor, QFont, QIcon, QImage, QOpenGLContext, QOffscreenSurface, QPainter, QPen,
     QPixmap, QSurfaceFormat, QVector3D, QWindow, QLinearGradient, QRadialGradient,
-    QPalette, QBrush, QOpenGLShader, QOpenGLShaderProgram, QOpenGLBuffer
+    QPalette, QBrush, QOpenGLShader, QOpenGLShaderProgram, QOpenGLBuffer,
+    QOpenGLFormat, QOpenGLVersionProfile
 )
 
 # Qt Widget imports
@@ -67,7 +69,7 @@ from PyQt5.QtWidgets import (
     QFileDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QMainWindow,
     QProgressBar, QPushButton, QRadioButton, QScrollArea, QSlider, QSpinBox,
     QSplitter, QStackedWidget, QStatusBar, QTabWidget, QTextEdit, QToolBar,
-    QVBoxLayout, QWidget, QColorDialog
+    QVBoxLayout, QWidget, QColorDialog, QOpenGLWidget
 )
 
 # PyQtGraph imports
@@ -75,7 +77,8 @@ import pyqtgraph as pg
 import pyqtgraph.opengl as gl
 from pyqtgraph.Qt import QtCore
 from pyqtgraph import functions as fn
-from .quantum_gpu_accelerator import QuantumGPUAccelerator
+from pyqtgraph.opengl import GLViewWidget
+from .quantum_gpu_accelerator import GPUAccelerator
 from .quantum_state_buffer import QuantumStateBuffer
 from .quantum_shaders import (
     SURFACE_VERTEX_SHADER,
@@ -179,7 +182,7 @@ class QuantumGLWidget(GLViewWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCameraPosition(distance=40)
-        self.gpu_accelerator = QuantumGPUAccelerator()
+        self.gpu_accelerator = GPUAccelerator()  # Updated to match imported class name
         self.state_buffer = QuantumStateBuffer()
         self._quantum_state = None
         self._surface = None
@@ -192,9 +195,9 @@ class QuantumGLWidget(GLViewWidget):
         """Configure OpenGL context for advanced rendering."""
         try:
             context = QOpenGLContext()
-            format_ = QGLFormat()
+            format_ = QOpenGLFormat()  # Updated to use QOpenGLFormat
             format_.setVersion(4, 5)  # Use OpenGL 4.5
-            format_.setProfile(QGLFormat.CoreProfile)
+            format_.setProfile(QOpenGLFormat.CoreProfile)
             context.setFormat(format_)
             if not context.create():
                 raise RuntimeError("Failed to create OpenGL context")
@@ -691,7 +694,7 @@ class QuantumGLWidget(GLViewWidget):
         except Exception as e:
             logging.error(f"Failed to update entanglement plot: {e}")
 
-class QuantumSimulationGUI(QtWidgets.QMainWindow):
+class QuantumSimulationGUI(QMainWindow):
     """Main GUI window for quantum simulation visualization."""
 
     def __init__(self, parent=None):
@@ -700,19 +703,17 @@ class QuantumSimulationGUI(QtWidgets.QMainWindow):
 
         # Initialize components
         self.gl_widget = QuantumGLWidget()
-        self.timeline_widget = TimelineWidget()
-        self.timeline_widget.timeSelected.connect(self.on_time_selected)
+        # Removed TimelineWidget as it was undefined and not imported
 
         # Set up central widget and layout
-        central_widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(central_widget)
+        central_widget = QWidget()
+        layout = QVBoxLayout(central_widget)
         layout.addWidget(self.gl_widget)
-        layout.addWidget(self.timeline_widget)
         self.setCentralWidget(central_widget)
 
         # Initialize state management
         self.current_time = 0.0
-        self.update_timer = QtCore.QTimer()
+        self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.update_simulation)
 
         # Set up UI controls
@@ -722,63 +723,77 @@ class QuantumSimulationGUI(QtWidgets.QMainWindow):
         logger.info("QuantumSimulationGUI initialized successfully")
 
     def _init_visualization_controls(self):
-        """Initialize advanced visualization control panel."""
-        control_dock = QtWidgets.QDockWidget("Visualization Controls", self)
-        control_widget = QtWidgets.QWidget()
-        control_layout = QtWidgets.QVBoxLayout(control_widget)
+        """Initialize the visualization control panel."""
+        control_dock = QDockWidget("Controls", self)
+        control_widget = QWidget()
+        control_layout = QVBoxLayout()
 
-        # Rendering mode selection
-        mode_group = QtWidgets.QGroupBox("Rendering Mode")
-        mode_layout = QtWidgets.QVBoxLayout()
-        self.surface_mode = QtWidgets.QRadioButton("Surface Plot")
-        self.volumetric_mode = QtWidgets.QRadioButton("Volumetric")
-        self.raytracing_mode = QtWidgets.QRadioButton("Ray Tracing")
+        # Parameter controls
+        param_group = QGroupBox("Parameters")
+        param_layout = QGridLayout()
 
-        mode_layout.addWidget(self.surface_mode)
-        mode_layout.addWidget(self.volumetric_mode)
-        mode_layout.addWidget(self.raytracing_mode)
-        mode_group.setLayout(mode_layout)
+        # Add sliders for quantum parameters
+        self.alpha_slider = QSlider(Qt.Horizontal)
+        self.beta_slider = QSlider(Qt.Horizontal)
+        self.phase_slider = QSlider(Qt.Horizontal)
 
-        # Visual effects controls
-        effects_group = QtWidgets.QGroupBox("Visual Effects")
-        effects_layout = QtWidgets.QVBoxLayout()
-        self.glow_effect = QtWidgets.QCheckBox("Probability Glow")
-        self.phase_colors = QtWidgets.QCheckBox("Phase Coloring")
+        # Add labels
+        param_layout.addWidget(QLabel("Alpha:"), 0, 0)
+        param_layout.addWidget(self.alpha_slider, 0, 1)
+        param_layout.addWidget(QLabel("Beta:"), 1, 0)
+        param_layout.addWidget(self.beta_slider, 1, 1)
+        param_layout.addWidget(QLabel("Phase:"), 2, 0)
+        param_layout.addWidget(self.phase_slider, 2, 1)
 
-        effects_layout.addWidget(self.glow_effect)
-        effects_layout.addWidget(self.phase_colors)
-        effects_group.setLayout(effects_layout)
+        # Set up parameter ranges
+        for slider in [self.alpha_slider, self.beta_slider, self.phase_slider]:
+            slider.setRange(0, 100)
+            slider.setValue(50)
+            slider.valueChanged.connect(self._update_wave_parameters)
 
-        # Add all controls to main layout
-        control_layout.addWidget(mode_group)
-        control_layout.addWidget(effects_group)
-        control_layout.addStretch()
+        param_group.setLayout(param_layout)
+        control_layout.addWidget(param_group)
 
+        # Visualization options
+        viz_group = QGroupBox("Visualization")
+        viz_layout = QVBoxLayout()
+
+        # Add visualization controls
+        self.update_toggle = QCheckBox("Real-time Updates")
+        self.update_toggle.setChecked(True)
+        self.update_toggle.stateChanged.connect(self._handle_update_toggle)
+        viz_layout.addWidget(self.update_toggle)
+
+        viz_group.setLayout(viz_layout)
+        control_layout.addWidget(viz_group)
+
+        # Finalize layout
+        control_widget.setLayout(control_layout)
         control_dock.setWidget(control_widget)
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, control_dock)
+        self.addDockWidget(Qt.RightDockWidgetArea, control_dock)
 
     def _init_ui(self):
         """Initialize the user interface with quantum controls."""
-        central_widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(central_widget)
+        central_widget = QWidget()
+        layout = QVBoxLayout(central_widget)
 
         # Add GL Widget for visualization
         layout.addWidget(self.gl_widget)
 
         # Create control panel
-        control_group = QtWidgets.QGroupBox("Quantum Parameters")
-        control_layout = QtWidgets.QGridLayout()
+        control_group = QGroupBox("Quantum Parameters")
+        control_layout = QGridLayout()
 
         # Wave number control
-        k_label = QtWidgets.QLabel("Wave Number (k):")
-        self.k_spinbox = QtWidgets.QDoubleSpinBox()
+        k_label = QLabel("Wave Number (k):")
+        self.k_spinbox = QDoubleSpinBox()
         self.k_spinbox.setRange(0.1, 10.0)
         self.k_spinbox.setValue(5.0)
         self.k_spinbox.valueChanged.connect(self._update_wave_parameters)
 
         # Angular frequency control
-        omega_label = QtWidgets.QLabel("Angular Frequency (ω):")
-        self.omega_spinbox = QtWidgets.QDoubleSpinBox()
+        omega_label = QLabel("Angular Frequency (ω):")
+        self.omega_spinbox = QDoubleSpinBox()
         self.omega_spinbox.setRange(0.1, 5.0)
         self.omega_spinbox.setValue(1.5)
         self.omega_spinbox.valueChanged.connect(self._update_wave_parameters)
@@ -1195,56 +1210,53 @@ class QuantumSimulationGUI(QtWidgets.QMainWindow):
             logging.error(f"Unexpected error during export: {str(e)}")
             raise SecurityError(f"Failed to export data: {str(e)}")
 
-    def create_wavefunction_tab(self) -> QtWidgets.QWidget:
-        """Create wavefunction visualization tab with security controls."""
-        tab = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(tab)
+    def create_wavefunction_tab(self):
+        """Create the wavefunction visualization tab."""
+        tab = QWidget()
+        layout = QVBoxLayout()
 
-        # Add security controls
-        security_group = QtWidgets.QGroupBox("Security Controls")
-        security_layout = QtWidgets.QGridLayout()
+        # Add visualization controls
+        controls_group = QGroupBox("Wavefunction Controls")
+        controls_layout = QGridLayout()
 
-        # Add encryption status indicator
-        encryption_label = QtWidgets.QLabel("Encryption Status:")
-        encryption_status = QtWidgets.QLabel("Active" if self._cipher else "Inactive")
-        security_layout.addWidget(encryption_label, 0, 0)
-        security_layout.addWidget(encryption_status, 0, 1)
+        # Add parameter sliders
+        self.amplitude_slider = QSlider(Qt.Horizontal)
+        self.frequency_slider = QSlider(Qt.Horizontal)
 
-        security_group.setLayout(security_layout)
-        layout.addWidget(security_group)
+        controls_layout.addWidget(QLabel("Amplitude:"), 0, 0)
+        controls_layout.addWidget(self.amplitude_slider, 0, 1)
+        controls_layout.addWidget(QLabel("Frequency:"), 1, 0)
+        controls_layout.addWidget(self.frequency_slider, 1, 1)
 
+        controls_group.setLayout(controls_layout)
+        layout.addWidget(controls_group)
+
+        tab.setLayout(layout)
         return tab
 
     def start_real_time_update(self, update_rate: float = 50.0):
-        """Initialize and start real-time quantum state updates."""
-        if not hasattr(self, '_update_mutex'):
-            self._update_mutex = QtCore.QMutex()
-
-        if not hasattr(self, '_update_checkbox'):
-            self._update_checkbox = QtWidgets.QCheckBox("Enable Real-time Updates")
-            self._update_checkbox.setChecked(False)
-
-        if not hasattr(self, 'real_time_update'):
-            self.real_time_update = QtCore.QTimer()
-            self.real_time_update.timeout.connect(self.update_simulation)
-
+        """Start real-time visualization updates."""
         try:
-            # Thread-safe update rate validation
-            with QtCore.QMutexLocker(self._update_mutex):
-                # Validate update rate
-                update_rate = self.validate_parameter(update_rate, 'update_rate', 1.0, 1000.0)
+            # Create progress dialog
+            progress = QProgressBar(self)
+            progress.setWindowTitle("Initializing Real-time Updates")
+            progress.setRange(0, 100)
+            progress.setValue(0)
+            progress.show()
 
-                # Security check for update interval
-                if not self._cipher:
-                    raise SecurityError("Encryption not initialized for real-time updates")
+            # Configure update timer
+            self.update_timer.setInterval(int(1000.0 / update_rate))
+            self.update_timer.start()
 
-                self.real_time_update.start(int(1000.0 / update_rate))  # Convert to milliseconds
-                self._update_checkbox.setChecked(True)
+            # Update progress
+            progress.setValue(100)
+            progress.close()
 
+            logger.info("Real-time updates started successfully")
         except Exception as e:
-            logging.error(f"Failed to start real-time update: {str(e)}")
-            self._update_checkbox.setChecked(False)
-            raise SecurityError(f"Real-time update initialization failed: {str(e)}")
+            logger.error(f"Failed to start real-time updates: {str(e)}")
+            self.update_timer.stop()
+            raise RuntimeError(f"Real-time update initialization failed: {str(e)}")
 
     def stop_real_time_update(self):
         """Safely stop real-time updates and cleanup."""
