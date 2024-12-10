@@ -194,13 +194,30 @@ class QuantumGLWidget(GLViewWidget):
     def setup_gl_context(self):
         """Configure OpenGL context for advanced rendering."""
         try:
+            # Create and configure OpenGL context
             context = QOpenGLContext()
-            format_ = QOpenGLFormat()  # Updated to use QOpenGLFormat
-            format_.setVersion(4, 5)  # Use OpenGL 4.5
+            format_ = QOpenGLFormat()
+            format_.setVersion(4, 5)  # Use OpenGL 4.5 for advanced features
             format_.setProfile(QOpenGLFormat.CoreProfile)
+            format_.setDepthBufferSize(24)
+            format_.setSamples(4)  # Enable multisampling
+            format_.setStencilBufferSize(8)
+            format_.setSwapBehavior(QOpenGLFormat.DoubleBuffer)
+
             context.setFormat(format_)
             if not context.create():
                 raise RuntimeError("Failed to create OpenGL context")
+
+            # Make context current using offscreen surface
+            surface = QOffscreenSurface()
+            surface.setFormat(format_)
+            surface.create()
+            if not context.makeCurrent(surface):
+                raise RuntimeError("Failed to make OpenGL context current")
+
+            # Verify OpenGL version and features
+            gl_version = context.format().version()
+            logger.info(f"OpenGL context initialized: version {gl_version[0]}.{gl_version[1]}")
             logger.info("OpenGL context initialized successfully")
         except Exception as e:
             logger.error(f"OpenGL context setup failed: {str(e)}")
@@ -260,20 +277,27 @@ class QuantumGLWidget(GLViewWidget):
     def cleanup(self):
         """Release GPU and OpenGL resources."""
         try:
-            self.surface_program.release()
-            self.volumetric_program.release()
-            self.raytracing_program.release()
-            self.gpu_accelerator.cleanup()
+            # Release shader programs
+            if hasattr(self, 'surface_program'):
+                self.surface_program.release()
+            if hasattr(self, 'volumetric_program'):
+                self.volumetric_program.release()
+            if hasattr(self, 'raytracing_program'):
+                self.raytracing_program.release()
+
+            # Release buffers and textures
+            if hasattr(self, '_surface_vbo'):
+                self._surface_vbo.release()
+            if hasattr(self, '_surface_ibo'):
+                self._surface_ibo.release()
+
+            # Release GPU resources
+            if hasattr(self, 'gpu_accelerator'):
+                self.gpu_accelerator.cleanup()
+
+            logger.info("OpenGL resources cleaned up successfully")
         except Exception as e:
             logger.error(f"Cleanup failed: {str(e)}")
-
-            # Set up animation timer but don't start it yet
-            self._timer = QTimer()
-            self._timer.timeout.connect(self._update_quantum_state)
-
-            # Mark initialization as complete
-            self._initialized = True
-            logging.debug("QuantumGLWidget initialized successfully")
 
     def _init_surface_plot(self):
         """Initialize surface plot with shader support."""
