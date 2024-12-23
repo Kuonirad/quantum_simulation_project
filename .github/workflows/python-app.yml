@@ -53,8 +53,14 @@ jobs:
         timeout-minutes: 10
         run: |
           echo "=== Starting conda configuration ==="
+          # Remove libmamba solver and related packages
+          conda remove -n base conda-libmamba-solver --force || true
+          conda clean --all --yes
+
           # Remove any existing solver configuration
           conda config --remove-key solver || true
+          conda config --system --remove-key solver || true
+          conda config --env --remove-key solver || true
 
           # Configure conda settings
           conda config --set solver classic
