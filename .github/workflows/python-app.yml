@@ -26,6 +26,9 @@ jobs:
           environment-file: environment.yml
           auto-update-conda: true
           activate-environment: quantum-sim
+          channel-priority: strict
+          channel-alias: https://conda.anaconda.org
+          conda-solver: classic
 
       - name: Install System Dependencies
         run: |
