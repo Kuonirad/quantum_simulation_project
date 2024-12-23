@@ -25,6 +25,7 @@ jobs:
       run: |
         # $CONDA is an environment variable pointing to the root of the miniconda directory
         echo $CONDA/bin >> $GITHUB_PATH
+        conda config --set solver classic  # Set solver before any conda commands
     - name: Install system dependencies
       run: |
         sudo apt-get update
