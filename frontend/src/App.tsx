@@ -34,21 +34,13 @@ function App() {
         <div>
           <label>
             Number of Particles:
-            <input
-              type="number"
-              value={particles}
-              onChange={(e) => setParticles(Number(e.target.value))}
-              min="1"
-            />
+            <input type="number" value={particles} onChange={(e) => setParticles(Number(e.target.value))} min="1" />
           </label>
         </div>
         <div>
           <label>
             Potential Type:
-            <select
-              value={potential}
-              onChange={(e) => setPotential(e.target.value)}
-            >
+            <select value={potential} onChange={(e) => setPotential(e.target.value)}>
               <option value="harmonic">Harmonic</option>
               <option value="square_well">Square Well</option>
             </select>
