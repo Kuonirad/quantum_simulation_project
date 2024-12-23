@@ -189,10 +189,10 @@ class QuantumGLWidget(GLViewWidget):
 
     def setup_gl_context(self) -> None:
         """Configure OpenGL context for advanced rendering.
-        
+
         Sets up an OpenGL 4.5 context with core profile and advanced features
         like multisampling and stencil buffer support.
-        
+
         Raises:
             RuntimeError: If context creation or initialization fails
         """
@@ -261,7 +261,7 @@ class QuantumGLWidget(GLViewWidget):
 
     def cleanup(self) -> None:
         """Release GPU and OpenGL resources.
-        
+
         Releases all shader programs, buffers, and textures to prevent memory leaks.
         Should be called when the widget is being destroyed.
         """
@@ -290,11 +290,11 @@ class QuantumGLWidget(GLViewWidget):
 
     def _init_surface_plot(self) -> None:
         """Initialize surface plot with shader support.
-        
+
         Sets up the OpenGL surface plot with proper vertex buffers and shader programs
         for quantum state visualization. Configures the plot parameters and initializes
         the rendering pipeline.
-        
+
         Raises:
             RuntimeError: If shader program initialization fails
         """
