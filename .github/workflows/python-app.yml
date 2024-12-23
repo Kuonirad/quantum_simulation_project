@@ -9,6 +9,7 @@ on:
 jobs:
   build-linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # Set overall job timeout
     env:
       CONDA_CHANNEL_PRIORITY: "strict"
       CONDA_SOLVER: "classic"  # Using classic solver as approved
@@ -47,8 +48,21 @@ jobs:
             exit 1
           fi
 
-      - name: Configure and Verify Conda
+      - name: Remove conda-libmamba-solver
         shell: bash -l {0}
+        timeout-minutes: 5  # Dedicated timeout for solver removal
+        run: |
+          conda remove -n base conda-libmamba-solver -y || true
+
+      - name: Configure Conda Solver
+        shell: bash -l {0}
+        timeout-minutes: 5  # Dedicated timeout for solver configuration
+        run: |
+          conda config --system --set solver classic
+
+      - name: Verify Conda Configuration
+        shell: bash -l {0}
+        timeout-minutes: 5  # Dedicated timeout for verification
         run: |
           # Remove conda-libmamba-solver if present
           conda remove -n base conda-libmamba-solver -y || true
