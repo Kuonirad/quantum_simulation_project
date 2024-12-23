@@ -48,11 +48,14 @@ jobs:
             exit 1
           fi
 
-      - name: Configure and Verify Conda Environment
+      - name: Reset and Configure Conda Environment
         shell: bash -l {0}
         timeout-minutes: 10
         run: |
           echo "=== Starting conda configuration ==="
+          # Remove any existing solver configuration
+          conda config --remove-key solver || true
+
           # Configure conda settings
           conda config --set solver classic
           conda config --set channel_priority strict
@@ -67,6 +70,17 @@ jobs:
           conda config --show channels
 
           echo "=== Finished conda configuration ==="
+
+      - name: Verify Solver Before Dependencies
+        shell: bash -l {0}
+        run: |
+          echo "=== Verifying solver configuration ==="
+          current_solver=$(conda config --show solver | grep -oP '(?<=solver: )\w+' || echo "not set")
+          if [ "$current_solver" != "classic" ]; then
+            echo "Error: Solver is not set to classic (current: $current_solver)"
+            exit 1
+          fi
+          echo "Solver verified as classic"
 
       - name: Install Python Dependencies
         shell: bash -l {0}
