@@ -48,64 +48,42 @@ jobs:
             exit 1
           fi
 
-      - name: Remove conda-libmamba-solver
+      - name: Install and Configure Conda-Libmamba-Solver
         shell: bash -l {0}
-        timeout-minutes: 5  # Dedicated timeout for solver removal
+        timeout-minutes: 5
         run: |
-          echo "=== Starting conda-libmamba-solver removal ==="
-          # Try removal with verbose output
-          conda remove -n base conda-libmamba-solver -y --verbose || true
-          echo "=== Finished conda-libmamba-solver removal ==="
+          echo "=== Installing conda-libmamba-solver ==="
+          # Update conda in base environment
+          conda update -n base conda -y
+          # Install conda-libmamba-solver
+          conda install -n base conda-libmamba-solver -y
+          # Verify installation
+          conda list conda-libmamba-solver
+          echo "=== Finished installing conda-libmamba-solver ==="
 
-      - name: Configure Conda Solver and Channels
+      - name: Configure Conda Environment
         shell: bash -l {0}
-        timeout-minutes: 5  # Dedicated timeout for solver configuration
+        timeout-minutes: 10  # Combined timeout for all conda configuration
         run: |
           echo "=== Starting conda configuration ==="
-          # Configure faster mirrors and channels
+          # Configure conda settings
+          echo "Configuring conda settings..."
+          conda config --set solver libmamba
           conda config --set channel_priority strict
-          conda config --add channels defaults
-          conda config --add channels conda-forge
           conda config --set remote_max_retries 5
           conda config --set remote_connect_timeout_secs 30
 
-          # Show current configuration
-          conda config --show solver
-          conda config --show channels
-
-          # Set solver to classic with retries
-          for i in {1..3}; do
-            echo "Attempt $i to set solver to classic"
-            if conda config --system --set solver classic; then
-              echo "Successfully set solver to classic"
-              break
-            fi
-            echo "Attempt $i failed, waiting 10 seconds before retry"
-            sleep 10
-          done
-          echo "=== Finished conda configuration ==="
-
-      - name: Verify Conda Configuration
-        shell: bash -l {0}
-        timeout-minutes: 5  # Dedicated timeout for verification
-        run: |
-          echo "=== Starting conda configuration verification ==="
-          # Remove conda-libmamba-solver if present
-          conda remove -n base conda-libmamba-solver -y || true
-
-          # Set solver to classic
-          conda config --system --set solver classic
+          # Configure channels with correct URLs
+          conda config --add channels defaults
+          conda config --add channels conda-forge
 
           # Verify configuration
-          echo "=== Conda Solver Configuration ==="
+          echo "=== Conda Configuration ==="
           conda config --show solver
-
-          echo "=== Verify conda-libmamba-solver is removed ==="
-          conda list conda-libmamba-solver
-
-          echo "=== Conda Environment Info ==="
-          conda info
           conda config --show channels
+          conda info
+
+          echo "=== Finished conda configuration ==="
 
       - name: Install Python Dependencies
         shell: bash -l {0}
