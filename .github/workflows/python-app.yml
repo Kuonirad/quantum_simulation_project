@@ -52,18 +52,35 @@ jobs:
         shell: bash -l {0}
         timeout-minutes: 5  # Dedicated timeout for solver removal
         run: |
-          conda remove -n base conda-libmamba-solver -y || true
+          echo "=== Starting conda-libmamba-solver removal ==="
+          # Try removal with verbose output
+          conda remove -n base conda-libmamba-solver -y --verbose || true
+          echo "=== Finished conda-libmamba-solver removal ==="
 
       - name: Configure Conda Solver
         shell: bash -l {0}
         timeout-minutes: 5  # Dedicated timeout for solver configuration
         run: |
-          conda config --system --set solver classic
+          echo "=== Starting conda solver configuration ==="
+          # Show current configuration
+          conda config --show solver
+          # Set solver to classic with retries
+          for i in {1..3}; do
+            echo "Attempt $i to set solver to classic"
+            if conda config --system --set solver classic; then
+              echo "Successfully set solver to classic"
+              break
+            fi
+            echo "Attempt $i failed, waiting 10 seconds before retry"
+            sleep 10
+          done
+          echo "=== Finished conda solver configuration ==="
 
       - name: Verify Conda Configuration
         shell: bash -l {0}
         timeout-minutes: 5  # Dedicated timeout for verification
         run: |
+          echo "=== Starting conda configuration verification ==="
           # Remove conda-libmamba-solver if present
           conda remove -n base conda-libmamba-solver -y || true
 
