@@ -52,6 +52,7 @@ jobs:
     - name: Test with pytest
       env:
         QT_QPA_PLATFORM: offscreen
+        LIBGL_ALWAYS_SOFTWARE: 1
         PYTHONPATH: ${{ github.workspace }}
       run: |
         xvfb-run -a pytest tests/test_quantum_visualization.py -v

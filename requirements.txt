@@ -7,6 +7,12 @@ isort==5.13.2
 mccabe==0.7.0
 mypy==1.14.0
 mypy-extensions==1.0.0
+numpy==1.24.3
+matplotlib==3.7.1
+PyQt5==5.15.9
+PyOpenGL==3.1.7
+reportlab==4.0.4
+scipy==1.10.1
 packaging==24.2
 pathspec==0.12.1
 platformdirs==4.3.6

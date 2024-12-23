@@ -1,15 +1,17 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.special import sph_harm, genlaguerre, factorial
-from scipy.integrate import quad
-from scipy.linalg import expm
+# -*- coding: utf-8 -*-
+"""
+Quantum simulation module implementing various quantum mechanical calculations.
+"""
+
+import json
 import os
-import logging
-from scientific_paper_generator import generate_scientific_paper, SimulationResult
-from matplotlib.animation import FuncAnimation
-import matplotlib.cm as cm
 import random
-import json  # Add this import for Blender data export
+
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.integrate import quad
+
+from scientific_paper_generator import SimulationResult, generate_scientific_paper
 
 # Remove VTK-related imports
 # import vtk
@@ -38,13 +40,11 @@ def C_consciousness(psi, K, x, y):
 
 def russell_hamiltonian(x, p, psi, K, alpha=1, beta=1, gamma=1):
     """Construct the Russell-inspired Hamiltonian"""
-    H_russell = (alpha *
-                 V_harmony(x, p) +
-                 beta *
-                 T_duality()[np.newaxis, np.newaxis, :, :] +
-                 gamma *
-                 quad(lambda y: C_consciousness(psi, K, x, y), -
-                      np.inf, np.inf)[0])
+    H_russell = (
+        alpha * V_harmony(x, p)
+        + beta * T_duality()[np.newaxis, np.newaxis, :, :]
+        + gamma * quad(lambda y: C_consciousness(psi, K, x, y), -np.inf, np.inf)[0]
+    )
     return H_russell
 
 
@@ -65,31 +65,39 @@ def orbital_hybridization(*psi_list, coeffs):
 
 def calculate_entanglement_entropy(psi, x):
     """Calculate the entanglement entropy of the wavefunction"""
-    probabilities = np.abs(psi(x))**2
+    probabilities = np.abs(psi(x)) ** 2
     probabilities /= np.sum(probabilities)  # Normalize
     return -np.sum(probabilities * np.log(probabilities + 1e-10))
 
 
-def spin_orbit_energy(j, l, s, zeta):
+def spin_orbit_energy(j, orbital, s, zeta):
     """Calculate spin-orbit coupling energy"""
-    return 0.5 * zeta * (j * (j + 1) - l * (l + 1) - s * (s + 1))
+    return 0.5 * zeta * (j * (j + 1) - orbital * (orbital + 1) - s * (s + 1))
 
 
 # Define noncommutative geometry components
-def A(f, x): return f(x)  # Identity operator
-def H(f, x): return np.sum(np.abs(f(x))**2) * (x[1] - x[0])  # Inner product
-def D(f, x): return np.gradient(f(x), x)  # Derivative operator
+def A(f, x):
+    return f(x)  # Identity operator
+
+
+def H(f, x):
+    return np.sum(np.abs(f(x)) ** 2) * (x[1] - x[0])  # Inner product
+
+
+def D(f, x):
+    return np.gradient(f(x), x)  # Derivative operator
+
 
 # Add new functions for AQAL integration
 
 
 def aqal_quadrants():
-    return ['Intentional', 'Behavioral', 'Cultural', 'Social']
+    return ["Intentional", "Behavioral", "Cultural", "Social"]
 
 
 def schitzoanalytic_perturbation(psi, x, intensity=0.1):
     """Apply a schitzoanalytic perturbation to the wavefunction"""
-    perturbation = np.sin(10 * x) * np.exp(-x**2 / 4)
+    perturbation = np.sin(10 * x) * np.exp(-(x**2) / 4)
     return psi + intensity * perturbation
 
 
@@ -98,20 +106,15 @@ def aqal_analysis(psi, x):
     quadrants = aqal_quadrants()
     analysis = {}
     for q in quadrants:
-        analysis[q] = np.sum(np.abs(psi(x))**2) * random.random()
+        analysis[q] = np.sum(np.abs(psi(x)) ** 2) * random.random()
     return analysis
 
 
-def save_quantum_state_for_blender(
-        psi, x, y, z, filename='quantum_state_data.json'):
-    data = {
-        'psi': psi.tolist(),
-        'x': x.tolist(),
-        'y': y.tolist(),
-        'z': z.tolist()
-    }
-    with open(filename, 'w') as f:
+def save_quantum_state_for_blender(psi, x, y, z, filename="quantum_state_data.json"):
+    data = {"psi": psi.tolist(), "x": x.tolist(), "y": y.tolist(), "z": z.tolist()}
+    with open(filename, "w") as f:
         json.dump(data, f)
+
 
 # Modify the run_russell_simulation function
 
@@ -125,34 +128,34 @@ def run_russell_simulation(n_steps=1000, dt=0.01):
     y = np.linspace(-5, 5, 100)
     z = np.linspace(-5, 5, 100)
     X, Y, Z = np.meshgrid(x, y, z)
-    def psi(x, y, z): return np.exp(-(x**2 + y**2 + z**2) / 2) / \
-        (np.pi**(3 / 4))  # Initial 3D Gaussian wavepacket
+
+    def psi(x, y, z):
+        return np.exp(-(x**2 + y**2 + z**2) / 2) / (np.pi ** (3 / 4))  # Initial 3D Gaussian wavepacket
+
     # 3D Gaussian kernel for consciousness effects
-    def K(x, y, z): return np.exp(-(x**2 + y**2 + z**2))
+    def K(x, y, z):
+        return np.exp(-(x**2 + y**2 + z**2))
 
     # Use noncommutative geometry components
     nc_geometry = (A, H, D)  # Spectral triple components
 
     psi_evolution = []
     entropies, so_energies = [], []
-    L, S = np.array([0, 0, 1]), np.array(
-        [0, 0, 0.5])  # Example angular momenta
-    j, l, s = 1.5, 1, 0.5  # Example quantum numbers
+    L, S = np.array([0, 0, 1]), np.array([0, 0, 0.5])  # Example angular momenta
+    j, angular_momentum, s = 1.5, 1, 0.5  # Example quantum numbers
     zeta = 0.1  # Example spin-orbit coupling constant
 
     # Constants for Russell-inspired Hamiltonian
     alpha, beta, gamma = 1, 1, 1
-    k = 1  # Coupling constant for V_harmony
-
     aqal_results = []
     schitzo_intensity = 0.1
 
     print("Step 1: Initializing the simulation components")
     print(f"  - x, y, z range: [{x[0]:.2f}, {x[-1]:.2f}]")
-    print(f"  - Initial wavefunction: 3D Gaussian wavepacket")
-    print(f"  - Consciousness kernel: 3D Gaussian")
+    print("  - Initial wavefunction: 3D Gaussian wavepacket")
+    print("  - Consciousness kernel: 3D Gaussian")
     print(f"  - Angular momenta: L={L}, S={S}")
-    print(f"  - Quantum numbers: j={j}, l={l}, s={s}")
+    print(f"  - Quantum numbers: j={j}, l={angular_momentum}, s={s}")
     print(f"  - Spin-orbit coupling constant: zeta={zeta}")
 
     # Time evolution
@@ -163,8 +166,7 @@ def run_russell_simulation(n_steps=1000, dt=0.01):
         psi_nc = nc_geometry[1](psi, X, Y, Z)
         D_psi = nc_geometry[2](psi, X, Y, Z)
         print(f"    - Inner product of psi: {psi_nc:.4f}")
-        print(
-            f"    - Derivative of psi at origin: {D_psi[len(x) // 2, len(y) // 2, len(z) // 2]:.4f}")
+        print(f"    - Derivative of psi at origin: {D_psi[len(x) // 2, len(y) // 2, len(z) // 2]:.4f}")
 
         print("  3. Constructing Hamiltonians")
         # Construct quantum mechanical Hamiltonian (simplified)
@@ -186,11 +188,11 @@ def run_russell_simulation(n_steps=1000, dt=0.01):
         print("  4. Time evolution")
         # Time evolution (simplified)
 
-        def psi_evolved(x, y, z): return np.exp(-1j *
-                                                H_total * dt) * psi(x, y, z)
+        def psi_evolved(x, y, z, H=H_total, wave_func=psi):
+            return np.exp(-1j * H * dt) * wave_func(x, y, z)
+
         psi = psi_evolved
-        print(
-            f"    - Norm of evolved wavefunction: {np.linalg.norm(psi(X, Y, Z)):.4f}")
+        print(f"    - Norm of evolved wavefunction: {np.linalg.norm(psi(X, Y, Z)):.4f}")
 
         print("  5. Calculating observables")
         # Calculate entanglement entropy
@@ -198,7 +200,7 @@ def run_russell_simulation(n_steps=1000, dt=0.01):
         entropies.append(entropy)
 
         # Calculate spin-orbit coupling energy
-        so_energy = spin_orbit_energy(j, l, s, zeta)
+        so_energy = spin_orbit_energy(j, angular_momentum, s, zeta)
         so_energies.append(so_energy)
 
         print(f"    - Entanglement Entropy: {entropy:.4f}")
@@ -230,7 +232,7 @@ def run_russell_simulation(n_steps=1000, dt=0.01):
         coordinates=(X, Y, Z),
         entanglement_entropy=entropies,
         spin_orbit_energies=so_energies,
-        aqal_analysis=aqal_results
+        aqal_analysis=aqal_results,
     )
     generate_scientific_paper(simulation_result)
 
@@ -249,35 +251,32 @@ if __name__ == "__main__":
     # Visualize final results with matplotlib
     plt.figure(figsize=(12, 8))
     plt.subplot(221)
-    plt.imshow(np.abs(psi_values[:, :, len(Z) // 2])
-               ** 2, extent=[X.min(), X.max(), Y.min(), Y.max()])
-    plt.title('Final Wavefunction (XY plane)')
+    plt.imshow(np.abs(psi_values[:, :, len(Z) // 2]) ** 2, extent=[X.min(), X.max(), Y.min(), Y.max()])
+    plt.title("Final Wavefunction (XY plane)")
     plt.colorbar()
 
     plt.subplot(222)
     plt.plot(range(len(entropies)), entropies)
-    plt.title('Entanglement Entropy Evolution')
-    plt.xlabel('Step')
-    plt.ylabel('Entropy')
+    plt.title("Entanglement Entropy Evolution")
+    plt.xlabel("Step")
+    plt.ylabel("Entropy")
 
     plt.subplot(223)
     plt.plot(range(len(so_energies)), so_energies)
-    plt.title('Spin-Orbit Coupling Energy Evolution')
-    plt.xlabel('Step')
-    plt.ylabel('Energy')
+    plt.title("Spin-Orbit Coupling Energy Evolution")
+    plt.xlabel("Step")
+    plt.ylabel("Energy")
 
     plt.subplot(224)
     for quadrant in aqal_quadrants():
-        plt.plot(range(len(aqal_results)),
-                 [result[quadrant] for result in aqal_results],
-                 label=quadrant)
-    plt.title('AQAL Quadrant Evolution')
-    plt.xlabel('Step')
-    plt.ylabel('Quadrant Value')
+        plt.plot(range(len(aqal_results)), [result[quadrant] for result in aqal_results], label=quadrant)
+    plt.title("AQAL Quadrant Evolution")
+    plt.xlabel("Step")
+    plt.ylabel("Quadrant Value")
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig('final_results_summary.png')
+    plt.savefig("final_results_summary.png")
     plt.close()
 
     # Run Blender visualization

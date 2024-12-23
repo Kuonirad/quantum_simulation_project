@@ -1,31 +1,32 @@
 """
 Comprehensive test suite for quantum visualization system.
 """
-import pytest
-import numpy as np
-from PyQt5.QtWidgets import QApplication
-from PyQt5.QtTest import QTest
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QOpenGLContext, QSurfaceFormat
-import sys
-import os
+
 import logging
+import os
+import sys
+
+import numpy as np
+import pytest
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QSurfaceFormat
+from PyQt5.QtTest import QTest
+from PyQt5.QtWidgets import QApplication
 
 # Configure environment for headless testing
-os.environ['QT_QPA_PLATFORM'] = 'offscreen'
-os.environ['QT_OPENGL'] = 'software'
-os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+os.environ["QT_OPENGL"] = "software"
+os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
 
-from src.quantum_gui import QuantumSimulationGUI, QuantumGLWidget
-from src.quantum_gpu_accelerator import QuantumGPUAccelerator
-from src.quantum_state_buffer import QuantumStateBuffer
+from src.quantum_gui import QuantumGLWidget, QuantumSimulationGUI
 
 # Configure logging for tests
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-@pytest.fixture(scope='session')
-def app():
+
+@pytest.fixture(scope="session")
+def app() -> QApplication:
     """Create QApplication instance with proper OpenGL configuration."""
     # Set application attributes before creating QApplication
     QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL)
@@ -43,8 +44,9 @@ def app():
         app = QApplication(sys.argv)
     yield app
 
+
 @pytest.fixture
-def gui(app, request):
+def gui(app: QApplication, request: pytest.FixtureRequest) -> QuantumSimulationGUI:
     """Create QuantumSimulationGUI instance with OpenGL context."""
     gui = QuantumSimulationGUI()
 
@@ -57,14 +59,16 @@ def gui(app, request):
     yield gui
     gui.close()
 
-def test_initialization(gui):
+
+def test_initialization(gui: QuantumSimulationGUI) -> None:
     """Test proper initialization of GUI components."""
     assert gui is not None
     assert isinstance(gui.gl_widget, QuantumGLWidget)
     assert gui.gl_widget.gpu_accelerator is not None
     assert gui.gl_widget.state_buffer is not None
 
-def test_shader_programs(gui):
+
+def test_shader_programs(gui: QuantumSimulationGUI) -> None:
     """Test shader program initialization and compilation."""
     gl_widget = gui.gl_widget
 
@@ -82,7 +86,8 @@ def test_shader_programs(gui):
     assert gl_widget.volumetric_program.isLinked()
     assert gl_widget.raytracing_program.isLinked()
 
-def test_quantum_state_update(gui):
+
+def test_quantum_state_update(gui: QuantumSimulationGUI) -> None:
     """Test quantum state updates and visualization."""
     gl_widget = gui.gl_widget
 
@@ -96,8 +101,8 @@ def test_quantum_state_update(gui):
     X, Y = np.meshgrid(x, y)
     sigma = 2.0
     r2 = X**2 + Y**2
-    psi = np.exp(-r2/(4*sigma**2)) * np.exp(1j * (X + Y))
-    psi = psi / np.sqrt(np.sum(np.abs(psi)**2))
+    psi = np.exp(-r2 / (4 * sigma**2)) * np.exp(1j * (X + Y))
+    psi = psi / np.sqrt(np.sum(np.abs(psi) ** 2))
 
     # Update state and verify
     gl_widget.set_quantum_state(psi)
@@ -105,7 +110,8 @@ def test_quantum_state_update(gui):
     assert current_state is not None
     assert np.allclose(current_state, psi, atol=1e-7)
 
-def test_gpu_acceleration(gui):
+
+def test_gpu_acceleration(gui: QuantumSimulationGUI) -> None:
     """Test GPU-accelerated quantum state calculations."""
     gl_widget = gui.gl_widget
 
@@ -117,12 +123,12 @@ def test_gpu_acceleration(gui):
 
     # Create test state
     state = np.random.rand(100, 100) + 1j * np.random.rand(100, 100)
-    state = state / np.sqrt(np.sum(np.abs(state)**2))
+    state = state / np.sqrt(np.sum(np.abs(state) ** 2))
 
     # Test universal oneness transformation
     transformed_state = accelerator.apply_universal_oneness(state, 0.5)
     assert transformed_state.shape == state.shape
-    assert np.isclose(np.sum(np.abs(transformed_state)**2), 1.0, atol=1e-7)
+    assert np.isclose(np.sum(np.abs(transformed_state) ** 2), 1.0, atol=1e-7)
 
     # Test cleanup
     try:
@@ -130,7 +136,8 @@ def test_gpu_acceleration(gui):
     except Exception as e:
         logger.warning(f"GPU cleanup warning: {str(e)}")
 
-def test_state_buffer(gui):
+
+def test_state_buffer(gui: QuantumSimulationGUI) -> None:
     """Test quantum state buffer functionality."""
     gl_widget = gui.gl_widget
 
@@ -152,7 +159,8 @@ def test_state_buffer(gui):
     assert interpolated is not None
     assert interpolated.shape == state1.shape
 
-def test_ui_controls(gui):
+
+def test_ui_controls(gui: QuantumSimulationGUI) -> None:
     """Test UI controls and rendering mode switches."""
     gl_widget = gui.gl_widget
 
@@ -170,7 +178,8 @@ def test_ui_controls(gui):
     QTest.mouseClick(gui.raytracing_mode, Qt.LeftButton)
     assert gui.raytracing_mode.isChecked()
 
-def test_error_handling(gui):
+
+def test_error_handling(gui: QuantumSimulationGUI) -> None:
     """Test error handling and validation."""
     gl_widget = gui.gl_widget
 
@@ -186,8 +195,9 @@ def test_error_handling(gui):
     with pytest.raises(ValueError):
         gl_widget.set_quantum_state(np.random.rand(50))
 
+
 @pytest.mark.benchmark
-def test_performance(gui):
+def test_performance(gui: QuantumSimulationGUI) -> None:
     """Test visualization performance under load."""
     gl_widget = gui.gl_widget
 
@@ -196,12 +206,13 @@ def test_performance(gui):
         pytest.skip("OpenGL context not valid")
 
     # Create large state changes
-    for i in range(10):
+    for _ in range(10):
         state = np.random.rand(100, 100) + 1j * np.random.rand(100, 100)
-        state = state / np.sqrt(np.sum(np.abs(state)**2))
+        state = state / np.sqrt(np.sum(np.abs(state) ** 2))
 
         # Measure update time
         import time
+
         start_time = time.time()
         gl_widget.set_quantum_state(state)
         update_time = time.time() - start_time
@@ -212,8 +223,9 @@ def test_performance(gui):
         # Allow time for GPU operations to complete
         gl_widget.context().swapBuffers(gl_widget.context().surface())
 
+
 @pytest.mark.rendering
-def test_visualization_modes(gui):
+def test_visualization_modes(gui: QuantumSimulationGUI) -> None:
     """Test different visualization modes and effects."""
     gl_widget = gui.gl_widget
 
@@ -237,7 +249,7 @@ def test_visualization_modes(gui):
     gl_widget.context().swapBuffers(gl_widget.context().surface())
 
     # Test glow effect if available
-    if hasattr(gui, 'glow_effect'):
+    if hasattr(gui, "glow_effect"):
         gui.glow_effect.setChecked(True)
         gl_widget.update()
         gl_widget.context().swapBuffers(gl_widget.context().surface())
