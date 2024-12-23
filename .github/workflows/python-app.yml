@@ -47,13 +47,25 @@ jobs:
             exit 1
           fi
 
-      - name: Configure Conda
+      - name: Configure and Verify Conda
         shell: bash -l {0}
         run: |
+          # Remove conda-libmamba-solver if present
+          conda remove -n base conda-libmamba-solver -y || true
+
+          # Set solver to classic
+          conda config --system --set solver classic
+
+          # Verify configuration
+          echo "=== Conda Solver Configuration ==="
+          conda config --show solver
+
+          echo "=== Verify conda-libmamba-solver is removed ==="
+          conda list conda-libmamba-solver
+
+          echo "=== Conda Environment Info ==="
           conda info
           conda config --show channels
-          conda config --set solver classic
-          conda list
 
       - name: Install Python Dependencies
         shell: bash -l {0}
