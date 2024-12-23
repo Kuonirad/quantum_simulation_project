@@ -9,50 +9,82 @@ on:
 jobs:
   build-linux:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash -l {0}
+    env:
+      CONDA_CHANNEL_PRIORITY: "strict"
+      CONDA_SOLVER: "classic"  # Using classic solver as approved
+      QT_QPA_PLATFORM: "offscreen"
+      LIBGL_ALWAYS_SOFTWARE: "1"
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libarchive-dev
-    - name: Configure conda
-      run: |
-        # Ensure conda is in PATH and configured properly
-        echo $CONDA/bin >> $GITHUB_PATH
-        conda config --show
-        conda config --set solver classic
-        conda info
-        conda list
-    - name: Install additional system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y xvfb libgl1-mesa-dev libxkbcommon-x11-0 libxcb-icccm4 \
-          libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
-          libxcb-xinerama0 libxcb-xfixes0 libglu1-mesa-dev freeglut3-dev
-    - name: Install dependencies
-      run: |
-        conda config --set solver classic
-        conda env update --file environment.yml --name base
-        conda list flake8  # Verify flake8 is installed
-    - name: Lint with flake8
-      run: |
-        # stop the build if there are Python syntax errors or undefined names
-        which flake8  # Verify flake8 is in PATH
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    - name: Test with pytest
-      env:
-        QT_QPA_PLATFORM: offscreen
-        LIBGL_ALWAYS_SOFTWARE: 1
-        PYTHONPATH: ${{ github.workspace }}
-      run: |
-        xvfb-run -a pytest tests/test_quantum_visualization.py -v
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Conda Environment
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          python-version: '3.10'
+          environment-file: environment.yml
+          auto-update-conda: true
+          activate-environment: quantum-sim
+
+      - name: Install System Dependencies
+        run: |
+          # Dynamic package installation based on system type
+          if [ -x "$(command -v apt-get)" ]; then
+            echo "Installing dependencies on Debian-based system..."
+            sudo apt-get update -qq
+            sudo apt-get install -y libarchive-dev xvfb libgl1-mesa-dev libxkbcommon-x11-0 \
+              libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+              libxcb-xinerama0 libxcb-xfixes0 libglu1-mesa-dev freeglut3-dev
+          elif [ -x "$(command -v yum)" ]; then
+            echo "Installing dependencies on RHEL-based system..."
+            sudo yum install -y libarchive-devel mesa-libGL-devel
+          else
+            echo "Unsupported package manager. Please adjust the workflow accordingly."
+            exit 1
+          fi
+
+      - name: Configure Conda
+        shell: bash -l {0}
+        run: |
+          conda info
+          conda config --show channels
+          conda config --set solver classic
+          conda list
+
+      - name: Install Python Dependencies
+        shell: bash -l {0}
+        run: |
+          conda env update --file environment.yml --name quantum-sim
+          conda list flake8
+
+      - name: Lint with flake8
+        shell: bash -l {0}
+        run: |
+          # Verify flake8 installation and location
+          which flake8
+
+          # Run strict linting checks
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+          # Run additional style checks
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+          # Generate detailed lint report
+          flake8 . --format=pylint --output-file=./lint-report.txt || true
+
+      - name: Upload Lint Report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: lint-report
+          path: ./lint-report.txt
+          retention-days: 14
+
+      - name: Test with pytest
+        shell: bash -l {0}
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          # Run tests with xvfb for GUI components
+          xvfb-run -a pytest tests/test_quantum_visualization.py -v
