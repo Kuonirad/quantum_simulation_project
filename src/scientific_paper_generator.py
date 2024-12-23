@@ -1,11 +1,12 @@
-import os
 import logging
+import os
 import subprocess
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.utils import ImageReader
+
 import fitz  # PyMuPDF
 import matplotlib.pyplot as plt
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 
 
 class SimulationResult:
@@ -21,16 +22,16 @@ class SimulationResult:
 
 # Configure Logging
 logging.basicConfig(
-    filename='scientific_paper_generation.log',
-    filemode='w',
+    filename="scientific_paper_generation.log",
+    filemode="w",
     level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
 console = logging.StreamHandler()
 console.setLevel(logging.INFO)
-formatter = logging.Formatter('%(levelname)s - %(message)s')
+formatter = logging.Formatter("%(levelname)s - %(message)s")
 console.setFormatter(formatter)
-logging.getLogger('').addHandler(console)
+logging.getLogger("").addHandler(console)
 
 
 def convert_latex_to_png(latex_code, output_path):
@@ -48,24 +49,22 @@ def convert_latex_to_png(latex_code, output_path):
         """
         tex_dir = os.path.dirname(output_path)
         tex_file = os.path.join(tex_dir, "temp_eq.tex")
-        with open(tex_file, 'w') as f:
+        with open(tex_file, "w") as f:
             f.write(tex_content)
         logging.debug(f"Created LaTeX file at {tex_file}")
 
         # Compile LaTeX to DVI
-        subprocess.run(['latex', '-interaction=nonstopmode',
-                       tex_file], check=True, cwd=tex_dir)
+        subprocess.run(["latex", "-interaction=nonstopmode", tex_file], check=True, cwd=tex_dir)
         logging.debug("LaTeX compilation successful.")
 
         # Convert DVI to PNG
-        dvi_file = tex_file.replace('.tex', '.dvi')
-        subprocess.run(['dvipng', '-D', '300', '-T', 'tight',
-                       '-o', output_path, dvi_file], check=True, cwd=tex_dir)
+        dvi_file = tex_file.replace(".tex", ".dvi")
+        subprocess.run(["dvipng", "-D", "300", "-T", "tight", "-o", output_path, dvi_file], check=True, cwd=tex_dir)
         logging.debug(f"Converted DVI to PNG at {output_path}")
 
         # Clean up auxiliary files
-        for ext in ['.aux', '.log', '.dvi', '.tex']:
-            aux_file = tex_file.replace('.tex', ext)
+        for ext in [".aux", ".log", ".dvi", ".tex"]:
+            aux_file = tex_file.replace(".tex", ext)
             if os.path.exists(aux_file):
                 os.remove(aux_file)
                 logging.debug(f"Removed auxiliary file: {aux_file}")
@@ -95,10 +94,7 @@ def embed_content(pdf_path, images, equations, citations):
             try:
                 img = ImageReader(image_path)
                 c.drawImage(img, x=50, y=y_position, width=200, height=150)
-                logging.debug(
-                    f"Embedded image {
-                        idx +
-                        1}: {image_path} at position (50, {y_position})")
+                logging.debug(f"Embedded image {idx + 1}: {image_path} at position (50, {y_position})")
                 y_position -= 170  # Adjust y position for next image
                 if y_position < 100:
                     c.showPage()
@@ -111,10 +107,7 @@ def embed_content(pdf_path, images, equations, citations):
             try:
                 eq_img = ImageReader(equation_path)
                 c.drawImage(eq_img, x=300, y=y_position, width=200, height=150)
-                logging.debug(
-                    f"Embedded equation {
-                        idx +
-                        1}: {equation_path} at position (300, {y_position})")
+                logging.debug(f"Embedded equation {idx + 1}: {equation_path} at position (300, {y_position})")
                 y_position -= 170
                 if y_position < 100:
                     c.showPage()
@@ -128,9 +121,7 @@ def embed_content(pdf_path, images, equations, citations):
         for idx, citation in enumerate(citations):
             try:
                 c.drawString(50, y_position, f"{idx + 1}. {citation}")
-                logging.debug(
-                    f"Embedded citation {
-                        idx + 1}: {citation} at position (50, {y_position})")
+                logging.debug(f"Embedded citation {idx + 1}: {citation} at position (50, {y_position})")
                 y_position += 15
                 if y_position > height - 50:
                     c.showPage()
@@ -167,20 +158,16 @@ def verify_pdf_content(pdf_path, expected_images, expected_equations):
                     actual_equations += 1
         doc.close()
 
-        logging.info(f"Verification Results:")
-        logging.info(
-            f"Expected Images: {expected_images}, Actual Images: {actual_images}")
-        logging.info(
-            f"Expected Equations: {expected_equations}, Actual Equations: {actual_equations}")
+        logging.info("Verification Results:")
+        logging.info(f"Expected Images: {expected_images}, Actual Images: {actual_images}")
+        logging.info(f"Expected Equations: {expected_equations}, Actual Equations: {actual_equations}")
 
         verification_passed = True
         if actual_images < expected_images:
-            logging.error(
-                f"Missing images. Expected: {expected_images}, Found: {actual_images}")
+            logging.error(f"Missing images. Expected: {expected_images}, Found: {actual_images}")
             verification_passed = False
         if actual_equations < expected_equations:
-            logging.error(
-                f"Missing equations. Expected: {expected_equations}, Found: {actual_equations}")
+            logging.error(f"Missing equations. Expected: {expected_equations}, Found: {actual_equations}")
             verification_passed = False
 
         if verification_passed:
@@ -194,9 +181,7 @@ def verify_pdf_content(pdf_path, expected_images, expected_equations):
         return False
 
 
-def generate_scientific_paper(
-        simulation_results,
-        output_path="final_scientific_paper.pdf"):
+def generate_scientific_paper(simulation_results, output_path="final_scientific_paper.pdf"):
     """Generates a scientific paper based on the quantum simulation results."""
     logging.info("Starting scientific paper generation")
 
@@ -214,12 +199,11 @@ def generate_scientific_paper(
     citations = [
         "[1] Russell, W., The Universal One, 1926.",
         "[2] Bohm, D., Wholeness and the Implicate Order, 1980.",
-        "[3] Wilber, K., Integral Psychology, 2000."
+        "[3] Wilber, K., Integral Psychology, 2000.",
     ]
 
     embed_success = embed_content(output_path, images, equations, citations)
-    verification_passed = verify_pdf_content(
-        output_path, len(images), len(equations))
+    verification_passed = verify_pdf_content(output_path, len(images), len(equations))
 
     if embed_success and verification_passed:
         logging.info(f"Scientific paper generated successfully: {output_path}")
@@ -238,6 +222,7 @@ if __name__ == "__main__":
         def plot_data(self, path):
             # Dummy plot function
             import matplotlib.pyplot as plt
+
             plt.figure()
             plt.plot([1, 2, 3], [1, 4, 9])
             plt.savefig(path)

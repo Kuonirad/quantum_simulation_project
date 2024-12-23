@@ -1,21 +1,24 @@
 """
 Circular buffer implementation for quantum state history management with thread safety.
 """
-from collections import deque
-import numpy as np
-from typing import Optional, List, Tuple
+
 import logging
-from PyQt5.QtCore import QObject, QMutex, QMutexLocker, pyqtSignal
+from collections import deque
+from typing import List, Optional, Tuple
+
+import numpy as np
+from PyQt5.QtCore import QMutex, QMutexLocker, QObject, pyqtSignal
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 class QuantumStateBuffer(QObject):
     """Manages quantum state history with thread-safe circular buffer implementation."""
 
     # Qt signals for state updates
     state_updated = pyqtSignal(object)  # Emits new state
-    buffer_cleared = pyqtSignal()       # Emits when buffer is cleared
+    buffer_cleared = pyqtSignal()  # Emits when buffer is cleared
 
     def __init__(self, max_size: int = 1000):
         """
@@ -69,19 +72,15 @@ class QuantumStateBuffer(QObject):
                 return self.buffer[-1]
 
             # Interpolate between states
-            t0, t1 = times[idx-1], times[idx]
-            s0, s1 = self.buffer[idx-1], self.buffer[idx]
+            t0, t1 = times[idx - 1], times[idx]
+            s0, s1 = self.buffer[idx - 1], self.buffer[idx]
 
             # Linear interpolation weight
             w = (target_time - t0) / (t1 - t0)
 
             return s0 * (1 - w) + s1 * w
 
-    def get_state_range(
-        self,
-        start_time: float,
-        end_time: float
-    ) -> Tuple[List[np.ndarray], List[float]]:
+    def get_state_range(self, start_time: float, end_time: float) -> Tuple[List[np.ndarray], List[float]]:
         """
         Get states within specified time range in a thread-safe manner.
 

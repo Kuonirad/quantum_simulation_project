@@ -1,11 +1,14 @@
 import unittest
+
 import numpy as np
 import torch
 from scipy.linalg import expm
-from src.advanced_quantum_simulation import walter_russell_principles, QHRModel
+
+from src.advanced_quantum_simulation import QHRModel
+
 
 class TestRussellPrinciples(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         """Initialize test environment"""
         self.H0 = np.array([[1, 0], [0, -1]])  # Simple two-level system
         self.t = 0.0
@@ -13,7 +16,7 @@ class TestRussellPrinciples(unittest.TestCase):
         self.omega = 1.0
         self.alpha = 0.5
 
-    def test_cosmic_duality_operator(self):
+    def test_cosmic_duality_operator(self) -> None:
         """Test if cosmic duality operator is unitary"""
         C = expm(1j * self.chi * self.H0)
         # Check if C†C = I (unitary property)
@@ -21,14 +24,14 @@ class TestRussellPrinciples(unittest.TestCase):
         product = C.conj().T @ C
         np.testing.assert_array_almost_equal(product, identity)
 
-    def test_rbi_operator(self):
+    def test_rbi_operator(self) -> None:
         """Test RBI operator properties"""
-        times = np.linspace(0, 2*np.pi, 100)
+        times = np.linspace(0, 2 * np.pi, 100)
         values = [self.alpha * np.sin(self.omega * t) for t in times]
         # Check periodicity
         np.testing.assert_array_almost_equal(values[0], values[-1], decimal=5)
 
-    def test_qhr_model(self):
+    def test_qhr_model(self) -> None:
         """Test QHR model forward pass"""
         input_size = 10
         hidden_size = 20
@@ -42,14 +45,13 @@ class TestRussellPrinciples(unittest.TestCase):
 
         self.assertEqual(output.shape, (batch_size, output_size))
 
-    def test_enhanced_hamiltonian(self):
+    def test_enhanced_hamiltonian(self) -> None:
         """Test enhanced Hamiltonian properties"""
         H_enhanced = self.H0 + self.alpha * np.sin(self.omega * self.t) * np.eye(2)
 
         # Check Hermiticity
-        np.testing.assert_array_almost_equal(
-            H_enhanced, H_enhanced.conj().T
-        )
+        np.testing.assert_array_almost_equal(H_enhanced, H_enhanced.conj().T)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()
