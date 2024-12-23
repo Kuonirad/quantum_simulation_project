@@ -20,6 +20,17 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Configure System-level Conda Settings
+        shell: bash -l {0}
+        run: |
+          # Remove any existing conda configuration files that might override settings
+          sudo rm -f /etc/conda/.condarc /usr/local/etc/conda/.condarc || true
+
+          # Set system-wide conda configuration
+          conda config --system --set solver classic
+          conda config --system --set channel_priority strict
+          conda config --system --show solver
+
       - name: Set up Conda Environment
         uses: conda-incubator/setup-miniconda@v2
         with:
@@ -30,6 +41,9 @@ jobs:
           channel-priority: strict
           channels: conda-forge,defaults
           conda-solver: classic
+          # Explicitly set solver in environment variables
+          environment-variables: |
+            CONDA_SOLVER=classic
 
       - name: Install System Dependencies
         run: |
