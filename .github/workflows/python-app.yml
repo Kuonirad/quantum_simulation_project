@@ -48,40 +48,23 @@ jobs:
             exit 1
           fi
 
-      - name: Install and Configure Conda-Libmamba-Solver
+      - name: Configure and Verify Conda Environment
         shell: bash -l {0}
-        timeout-minutes: 5
-        run: |
-          echo "=== Installing conda-libmamba-solver ==="
-          # Update conda in base environment
-          conda update -n base conda -y
-          # Install conda-libmamba-solver
-          conda install -n base conda-libmamba-solver -y
-          # Verify installation
-          conda list conda-libmamba-solver
-          echo "=== Finished installing conda-libmamba-solver ==="
-
-      - name: Configure Conda Environment
-        shell: bash -l {0}
-        timeout-minutes: 10  # Combined timeout for all conda configuration
+        timeout-minutes: 10
         run: |
           echo "=== Starting conda configuration ==="
           # Configure conda settings
-          echo "Configuring conda settings..."
-          conda config --set solver libmamba
+          conda config --set solver classic
           conda config --set channel_priority strict
           conda config --set remote_max_retries 5
           conda config --set remote_connect_timeout_secs 30
 
-          # Configure channels with correct URLs
-          conda config --add channels defaults
-          conda config --add channels conda-forge
-
           # Verify configuration
           echo "=== Conda Configuration ==="
+          conda info
+          conda config --show-sources
           conda config --show solver
           conda config --show channels
-          conda info
 
           echo "=== Finished conda configuration ==="
 
