@@ -1,1 +1,2 @@
 venv_311/\n__pycache__/\n*.pyc\n*.pyo\n*.pyd\n.Python\nenv/\nbuild/\ndevelop-eggs/\ndist/\ndownloads/\neggs/\n.eggs/\nlib/\nlib64/\nparts/\nsdist/\nvar/\nwheels/\n*.egg-info/\n.installed.cfg\n*.egg\n.env\n.venv\n.pytest_cache/
+venv_311/
