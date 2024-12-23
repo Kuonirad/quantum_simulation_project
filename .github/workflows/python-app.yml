@@ -29,10 +29,6 @@ jobs:
           activate-environment: quantum-sim
           channel-priority: strict
           channels: conda-forge,defaults
-          channel-alias: https://repo.anaconda.com
-          custom-channels: |
-            conda-forge: https://conda.anaconda.org
-            defaults: https://repo.anaconda.com
           conda-solver: classic
 
       - name: Install System Dependencies
