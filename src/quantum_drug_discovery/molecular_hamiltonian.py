@@ -138,9 +138,9 @@ class MolecularHamiltonian:
         n_qubits = 2 * self.n_orbitals
         pauli_string = ['I'] * n_qubits
         
-        for orbital, type in sorted(term, reverse=True):
-            # type: 1 for creation, 0 for annihilation
-            if type == 1:  # creation
+        for orbital, op_type in sorted(term, reverse=True):
+            # op_type: 1 for creation, 0 for annihilation
+            if op_type == 1:  # creation
                 # Apply σ+ = (X-iY)/2
                 for i in range(orbital):
                     pauli_string[i] = 'Z'
