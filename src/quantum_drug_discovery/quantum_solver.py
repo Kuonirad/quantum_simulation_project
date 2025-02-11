@@ -1,10 +1,11 @@
 import numpy as np
 from typing import Dict, Tuple, Optional
-from qiskit import QuantumCircuit, transpile
-from qiskit.primitives import Estimator
+from qiskit import QuantumCircuit, transpile, assemble
+from qiskit.primitives import StatevectorEstimator
 from qiskit.quantum_info import SparsePauliOp
 from qiskit_algorithms.optimizers import COBYLA, SPSA
 from qiskit_aer import AerSimulator
+from qiskit.providers.aer.noise import NoiseModel
 
 from .error_mitigation import ErrorMitigator
 
@@ -52,23 +53,32 @@ class QuantumSolver:
         Returns:
             Tuple[np.ndarray, float]: Optimal parameters and corresponding energy
         """
-        # Prepare parameterized circuit
-        circuit = self._prepare_hardware_efficient_ansatz(ansatz_params)
-        
-        # Initialize estimator
-        estimator = Estimator()
-        
-        # Configure optimizer
+        # Initialize statevector estimator and optimizer
+        estimator = StatevectorEstimator()
         optimizer = COBYLA(maxiter=1000)
         
-        # Execute with error mitigation
-        result = self.error_mitigator.execute_with_mitigation(
-            lambda: estimator.run([circuit], [hamiltonian]).result().values[0],
-            circuit,
-            hamiltonian
+        def objective_function(params: np.ndarray) -> float:
+            """VQE objective function."""
+            # Prepare and transpile circuit
+            circuit = self._prepare_hardware_efficient_ansatz(params)
+            transpiled_circuit = transpile(circuit, self.backend)
+            
+            # Execute with error mitigation
+            result = self.error_mitigator.execute_with_mitigation(
+                lambda: estimator.run([transpiled_circuit], [hamiltonian]).result().values[0],
+                transpiled_circuit,
+                hamiltonian
+            )
+            return result.real
+        
+        # Run optimization
+        opt_result = optimizer.minimize(
+            fun=objective_function,
+            x0=ansatz_params
         )
         
-        return ansatz_params, result
+        # Return optimal parameters and energy
+        return opt_result.x, opt_result.fun
     
     def run_qse(self, hamiltonian: SparsePauliOp, ground_state_params: np.ndarray) -> Dict:
         """Performs Quantum Subspace Expansion for excited states.
@@ -83,14 +93,48 @@ class QuantumSolver:
         # Prepare ground state circuit
         ground_state_circuit = self._prepare_hardware_efficient_ansatz(ground_state_params)
         
-        # Initialize estimator
-        estimator = Estimator()
+        # Initialize statevector estimator
+        estimator = StatevectorEstimator()
+        
+        # Transpile circuit for backend
+        transpiled_circuit = transpile(ground_state_circuit, self.backend)
         
         # Execute QSE with error mitigation
         excited_states = self.error_mitigator.execute_with_mitigation(
-            lambda: estimator.run([ground_state_circuit], [hamiltonian]).result().values[0],
-            ground_state_circuit,
+            lambda: estimator.run([transpiled_circuit], [hamiltonian]).result().values[0],
+            transpiled_circuit,
             hamiltonian
         )
         
         return excited_states
+
+    def _prepare_hardware_efficient_ansatz(self, params: np.ndarray) -> QuantumCircuit:
+        """Prepares a hardware-efficient ansatz circuit.
+        
+        Args:
+            params: Circuit parameters for the ansatz
+            
+        Returns:
+            QuantumCircuit: Parameterized quantum circuit
+        """
+        # Number of qubits based on Hamiltonian size
+        n_qubits = 4  # This should be determined from Hamiltonian
+        
+        # Create quantum circuit
+        qc = QuantumCircuit(n_qubits)
+        
+        # Add parameterized gates
+        param_index = 0
+        for layer in range(2):  # Number of repetitions
+            # Single qubit rotations
+            for q in range(n_qubits):
+                qc.rx(params[param_index], q)
+                param_index += 1
+                qc.rz(params[param_index], q)
+                param_index += 1
+            
+            # Entangling gates
+            for q in range(n_qubits - 1):
+                qc.cx(q, q + 1)
+        
+        return qc
