@@ -3,7 +3,7 @@ from typing import List, Dict, Tuple, Optional, Callable
 from qiskit import QuantumCircuit
 from qiskit.primitives import StatevectorEstimator, Estimator
 from qiskit.quantum_info import SparsePauliOp, Statevector, Operator
-from qiskit.algorithms.optimizers import COBYLA, SPSA
+from qiskit_algorithms.optimizers import COBYLA, SPSA
 from scipy.linalg import eigh
 
 from .error_mitigation import ErrorMitigator
