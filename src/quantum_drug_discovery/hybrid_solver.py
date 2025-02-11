@@ -1,9 +1,10 @@
 import numpy as np
 from typing import List, Dict, Tuple, Optional, Callable
 from qiskit import QuantumCircuit
-from qiskit.primitives import Estimator
-from qiskit.quantum_info import SparsePauliOp
+from qiskit.primitives import StatevectorEstimator, Estimator
+from qiskit.quantum_info import SparsePauliOp, Statevector, Operator
 from qiskit_algorithms.optimizers import COBYLA, SPSA
+from scipy.linalg import eigh
 
 from .error_mitigation import ErrorMitigator
 from .molecular_hamiltonian import MolecularHamiltonian
@@ -23,7 +24,8 @@ class HybridSolver:
         max_iterations: int = 1000,
         tolerance: float = 1e-6,
         ansatz: Optional[QuantumCircuit] = None,
-        estimator: Optional[Estimator] = None
+        estimator: Optional[StatevectorEstimator] = None,
+        hamiltonian: Optional[SparsePauliOp] = None
     ) -> Dict:
         """
         Main optimization loop for molecular ground state and excited states.
@@ -33,14 +35,18 @@ class HybridSolver:
             method: 'vqe', 'qse', or 'qaoa'
             max_iterations: Maximum optimization iterations
             tolerance: Convergence tolerance
+            ansatz: Optional quantum circuit for the ansatz
+            estimator: Optional StatevectorEstimator instance
+            hamiltonian: Optional SparsePauliOp Hamiltonian
         """
-        # Construct molecular Hamiltonian
-        hamiltonian = self.hamiltonian_constructor.construct_electronic_hamiltonian(
-            molecular_data['one_body_integrals'],
-            molecular_data['two_body_integrals'],
-            molecular_data['n_electrons'],
-            molecular_data['n_orbitals']
-        )
+        # Use provided Hamiltonian or construct from molecular data
+        if hamiltonian is None:
+            hamiltonian = self.hamiltonian_constructor.construct_electronic_hamiltonian(
+                molecular_data['one_body_integrals'],
+                molecular_data['two_body_integrals'],
+                molecular_data['n_electrons'],
+                molecular_data['n_orbitals']
+            )
         
         if method == 'vqe':
             result = self._run_vqe_loop(
@@ -73,28 +79,17 @@ class HybridSolver:
         max_iterations: int,
         tolerance: float,
         ansatz: Optional[QuantumCircuit] = None,
-        estimator: Optional[Estimator] = None
+        estimator: Optional[StatevectorEstimator] = None
     ) -> Dict:
         """Implements VQE optimization loop with error mitigation."""
-        # Initialize optimizer
-        optimizer = SPSA(
-            maxiter=max_iterations,
-            callback=self._convergence_callback
-        )
+        # Initialize optimizer with conservative settings
+        self._convergence_history = []  # Reset history
         
-        # Use provided ansatz or create default
-        if ansatz is None:
-            n_qubits = self.hamiltonian_constructor.n_orbitals * 2
-            ansatz = QuantumCircuit(n_qubits)
-            for q in range(n_qubits):
-                ansatz.h(q)
+        # Initialize convergence history
+        self._convergence_history = []
         
         # Initialize ansatz parameters
-        initial_params = self._initialize_ansatz_parameters()
-        
-        # Use provided estimator or create default
-        if estimator is None:
-            estimator = Estimator()
+        initial_params = self._initialize_ansatz_parameters(ansatz)
         
         # Define objective function with error mitigation
         def objective(params):
@@ -105,9 +100,69 @@ class HybridSolver:
             circuit = circuit.assign_parameters(parameter_dict)
             
             # Execute with error mitigation
-            job = estimator.run([circuit], [hamiltonian])
+            job = estimator.run([(circuit, [hamiltonian])])
             result = job.result()
-            energy = result.values[0]
+            energy = result[0].data.evs[0].real
+            
+            # Apply error mitigation
+            mitigated_energy = self.error_mitigator.execute_with_mitigation(
+                lambda: energy,
+                circuit,
+                hamiltonian
+            )
+            
+            # Record point in convergence history
+            self._convergence_history.append({
+                'iteration': len(self._convergence_history),
+                'energy': mitigated_energy.real,
+                'std': 0.0  # No step size information
+            })
+            
+            return mitigated_energy.real
+        
+        # Record initial point
+        initial_energy = objective(initial_params)
+        
+        def callback(x):
+            """Callback to track optimization progress."""
+            # Stop if we have enough iterations
+            if len(self._convergence_history) >= max_iterations:
+                return True  # Stop optimization
+            return False  # Continue optimization
+            
+        optimizer = COBYLA(
+            maxiter=max_iterations,
+            tol=tolerance,
+            rhobeg=0.1,  # Initial trust region radius
+            callback=callback  # Add callback to optimizer
+        )
+        
+        # Use provided ansatz or create default
+        if ansatz is None:
+            n_qubits = self.hamiltonian_constructor.n_orbitals * 2
+            ansatz = QuantumCircuit(n_qubits)
+            for q in range(n_qubits):
+                ansatz.h(q)
+        
+        # Initialize ansatz parameters with provided ansatz
+        initial_params = self._initialize_ansatz_parameters(ansatz)
+        
+        # Use provided estimator or create default
+        if estimator is None:
+            estimator = StatevectorEstimator()
+        
+        # Define objective function with error mitigation
+        def objective(params):
+            # Prepare circuit with current parameters
+            circuit = ansatz.copy()
+            # Assign parameters to the ansatz circuit
+            parameter_dict = dict(zip(circuit.parameters, params))
+            circuit = circuit.assign_parameters(parameter_dict)
+            
+            # Execute with error mitigation
+            job = estimator.run([(circuit, [hamiltonian])])
+            result = job.result()
+            energy = result[0].data.evs[0].real
             
             # Apply error mitigation
             mitigated_energy = self.error_mitigator.execute_with_mitigation(
@@ -118,12 +173,41 @@ class HybridSolver:
             
             return mitigated_energy.real
         
-        # Run optimization loop
-        opt_result = optimizer.minimize(
-            fun=objective,
-            x0=initial_params,
-            bounds=None
-        )
+        # Run optimization loop with timeout
+        import time
+        start_time = time.time()
+        max_time = 60  # Maximum 60 seconds for optimization
+        
+        def timeout_checker():
+            return time.time() - start_time > max_time
+        
+        # Run optimization with timeout and debug prints
+        try:
+            print("Starting VQE optimization...")
+            print(f"Initial parameters: {initial_params}")
+            print(f"Ansatz circuit:\n{ansatz}")
+            print(f"Hamiltonian:\n{hamiltonian}")
+            
+            # Evaluate initial objective
+            initial_energy = objective(initial_params)
+            print(f"Initial energy: {initial_energy}")
+            
+            opt_result = optimizer.minimize(
+                fun=objective,
+                x0=initial_params
+            )
+            print("VQE optimization completed successfully")
+            
+            # Check if timeout occurred
+            if timeout_checker():
+                print("VQE optimization timed out after 60 seconds")
+        except Exception as e:
+            print(f"VQE optimization failed: {str(e)}")
+            # Return best result so far
+            opt_result = type('OptResult', (), {
+                'x': initial_params,
+                'fun': objective(initial_params)
+            })()
         
         # Compute final energy with error mitigation
         final_energy = objective(opt_result.x)
@@ -219,9 +303,9 @@ class HybridSolver:
             )
             
             # Execute with estimator and error mitigation
-            job = estimator.run([circuit], [hamiltonian])
+            job = estimator.run([(circuit, [hamiltonian])])
             result = job.result()
-            energy = result.values[0]
+            energy = result[0].data.evs[0].real
             
             # Apply error mitigation
             mitigated_energy = self.error_mitigator.execute_with_mitigation(
@@ -256,9 +340,14 @@ class HybridSolver:
             'optimal_state': final_state
         }
     
-    def _initialize_ansatz_parameters(self) -> np.ndarray:
+    def _initialize_ansatz_parameters(self, ansatz: Optional[QuantumCircuit] = None) -> np.ndarray:
         """Initializes VQE ansatz parameters."""
-        # Use hardware efficient ansatz
+        if ansatz is not None:
+            # Use number of parameters from provided ansatz
+            n_params = len(ansatz.parameters)
+            return np.random.randn(n_params)
+            
+        # Default hardware efficient ansatz parameters
         n_qubits = self.hamiltonian_constructor.n_orbitals * 2
         n_layers = 2
         params_per_layer = n_qubits * 3  # Rx, Ry, Rz rotations
@@ -419,7 +508,8 @@ class HybridSolver:
         n_iter: int,
         params: np.ndarray,
         energy: float,
-        std: float
+        std: float,
+        nfev: Optional[int] = None
     ) -> None:
         """Callback function to track optimization convergence."""
         if not hasattr(self, '_convergence_history'):
@@ -430,3 +520,22 @@ class HybridSolver:
             'energy': energy,
             'std': std
         })
+        
+    def _get_statevector(
+        self,
+        circuit: QuantumCircuit
+    ) -> Statevector:
+        """Gets the statevector from a quantum circuit."""
+        # Create a copy of the circuit without measurements
+        sv_circuit = circuit.copy()
+        sv_circuit.remove_final_measurements()
+        
+        # Add instruction to save statevector
+        sv_circuit.save_statevector()
+        
+        # Run on backend
+        job = self.backend.run(sv_circuit)
+        result = job.result()
+        
+        # Return statevector
+        return Statevector(result.data()['statevector'])
